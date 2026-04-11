@@ -6,15 +6,15 @@
     <title>Шахматы против Бота</title>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { margin: 0; overflow: hidden; background: #0a1420; font-family: 'Segoe UI', 'Arial', sans-serif; touch-action: none; }
+        body { margin: 0; overflow: hidden; background: #1a1a2e; font-family: 'Segoe UI', 'Arial', sans-serif; touch-action: none; }
         #title {
             position: absolute; top: 15px; left: 0; right: 0; text-align: center;
-            color: #d4c5a9; font-size: 22px; font-weight: 500; text-shadow: 2px 2px 8px rgba(0,0,0,0.7);
+            color: #c9a96b; font-size: 22px; font-weight: 500; text-shadow: 2px 2px 8px rgba(0,0,0,0.7);
             letter-spacing: 4px; z-index: 50; pointer-events: none;
         }
         #captured-panel {
             position: absolute; top: 20px; right: 20px; z-index: 150;
-            background: rgba(15,25,35,0.8); color: #e0d5c0; padding: 15px 20px;
+            background: rgba(20,30,45,0.85); color: #e0d5c0; padding: 15px 20px;
             border-radius: 20px; backdrop-filter: blur(8px); border: 1px solid #6a8aaa;
             font-size: 16px; min-width: 160px; pointer-events: none;
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
@@ -70,6 +70,12 @@
             border-radius: 30px; font-size: 14px; z-index: 100; backdrop-filter: blur(5px);
             border: 1px solid #6a8aaa; pointer-events: none;
         }
+        #message-popup {
+            position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
+            background: rgba(201, 169, 107, 0.9); color: #111; padding: 8px 20px;
+            border-radius: 30px; font-size: 16px; font-weight: bold; z-index: 400;
+            opacity: 0; transition: opacity 0.3s; pointer-events: none;
+        }
         @media (max-width: 600px) {
             .btn { padding: 12px 14px; font-size: 13px; }
             #captured-panel { font-size: 14px; padding: 10px 15px; min-width: 130px; }
@@ -85,6 +91,7 @@
     </div>
     
     <div id="turn-indicator">ХОД БЕЛЫХ</div>
+    <div id="message-popup">👑 КОРОЛЬ ВОЗВРАЩАЕТ ПЕШКУ!</div>
     
     <button id="musicBtn">🎵 МУЗЫКА</button>
     
@@ -113,14 +120,14 @@
     <script type="module">
         import * as THREE from 'three';
 
-        // ========== ЗВУКИ (В 2 РАЗА ГРОМЧЕ) ==========
+        // ========== ЗВУКИ ==========
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
         function playMoveSound(isCapture = false) {
             if (audioCtx.state === 'suspended') audioCtx.resume();
             const now = audioCtx.currentTime;
             const gain = audioCtx.createGain();
-            gain.gain.value = isCapture ? 0.4 : 0.3; // УДВОЕНО
+            gain.gain.value = isCapture ? 0.4 : 0.3;
             gain.connect(audioCtx.destination);
             
             if (isCapture) {
@@ -166,59 +173,76 @@
             }
         }
 
-        // ========== СЦЕНА С ФИКСИРОВАННОЙ КАМЕРОЙ (ВИДНО ВСЕ УГЛЫ) ==========
+        function playKingSound() {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const now = audioCtx.currentTime;
+            const gain = audioCtx.createGain();
+            gain.gain.value = 0.3;
+            gain.connect(audioCtx.destination);
+            
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = 523.25;
+            gain.gain.setValueAtTime(0.3, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3);
+            osc.connect(gain);
+            osc.start(now);
+            osc.stop(now + 0.3);
+            
+            const osc2 = audioCtx.createOscillator();
+            const gain2 = audioCtx.createGain();
+            osc2.type = 'sine';
+            osc2.frequency.value = 659.25;
+            gain2.gain.setValueAtTime(0.2, now + 0.1);
+            gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+            osc2.connect(gain2);
+            gain2.connect(audioCtx.destination);
+            osc2.start(now + 0.1);
+            osc2.stop(now + 0.4);
+        }
+
+        // ========== СЦЕНА ==========
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x152530);
+        scene.background = new THREE.Color(0x1a2a3a);
         
-        const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 1000);
-        // Отодвинутая камера под углом — видно все углы доски
-        camera.position.set(5.5, 8.0, -5.0);
-        camera.lookAt(3.5, 0.5, 3.5);
+        const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 100);
+        camera.position.set(2.8, 9.0, -2.5);
+        camera.lookAt(3.5, 0, 3.5);
         
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(innerWidth, innerHeight); 
         renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
-        renderer.shadowMap.enabled = true; 
-        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.shadowMap.enabled = false;
         document.body.appendChild(renderer.domElement);
 
-        // Свет
-        const dirLight = new THREE.DirectionalLight(0xfff5e6, 1.3);
-        dirLight.position.set(6, 14, 5); 
-        dirLight.castShadow = true; 
-        dirLight.receiveShadow = true;
-        dirLight.shadow.mapSize.width = 2048; 
-        dirLight.shadow.mapSize.height = 2048;
-        const d = 11; 
-        dirLight.shadow.camera.left = -d; 
-        dirLight.shadow.camera.right = d;
-        dirLight.shadow.camera.top = d; 
-        dirLight.shadow.camera.bottom = -d;
-        dirLight.shadow.camera.near = 1; 
-        dirLight.shadow.camera.far = 28;
-        scene.add(dirLight); 
-        scene.add(new THREE.AmbientLight(0x405570, 0.65));
+        // Освещение
+        scene.add(new THREE.AmbientLight(0x506070, 0.9));
+        const dirLight = new THREE.DirectionalLight(0xfff5e6, 1.0);
+        dirLight.position.set(2, 10, 2);
+        scene.add(dirLight);
+        const dirLight2 = new THREE.DirectionalLight(0xe8f0ff, 0.6);
+        dirLight2.position.set(-2, 8, -2);
+        scene.add(dirLight2);
+
+        // ДОСКА
+        const darkMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4 });
+        const lightMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.3 });
+        const edgeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 });
         
-        // Доска
-        const darkMat = new THREE.MeshStandardMaterial({ color: 0x6b4e3a, roughness: 0.55 });
-        const lightMat = new THREE.MeshStandardMaterial({ color: 0xe8d0b0, roughness: 0.45 });
-        const base = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.15, 8.5), new THREE.MeshStandardMaterial({color: 0x3a2518}));
-        base.position.set(4, -0.15, 4); 
-        base.receiveShadow = true; 
-        base.castShadow = true; 
+        const base = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.15, 8.5), edgeMat);
+        base.position.set(4, -0.15, 4);
         scene.add(base);
         
         for (let i = 0; i < 8; i++) {
             for (let j = 0; j < 8; j++) {
                 const tile = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.1, 0.98), (i+j)%2 === 0 ? lightMat : darkMat);
-                tile.position.set(i + 0.5, 0, j + 0.5); 
-                tile.receiveShadow = true; 
+                tile.position.set(i + 0.5, 0, j + 0.5);
                 scene.add(tile);
             }
         }
 
         // Подсветка
-        const highMat = new THREE.MeshStandardMaterial({ color: 0x44aaff, transparent: true, opacity: 0.45 });
+        const highMat = new THREE.MeshStandardMaterial({ color: 0x44aaff, transparent: true, opacity: 0.5 });
         const attackMat = new THREE.MeshStandardMaterial({ color: 0xff5544, transparent: true, opacity: 0.5 });
         const selMat = new THREE.MeshStandardMaterial({ color: 0xffdd44, transparent: true, opacity: 0.5 });
         
@@ -234,18 +258,64 @@
             }
         }
 
-        // Фигуры
-        function createPiece(type, color) {
+        // ========== КОНЬ ==========
+        function createKnight(color) {
             const group = new THREE.Group();
             const isW = color === 'w';
-            const main = new THREE.MeshStandardMaterial({ color: isW ? 0xf5f0e8 : 0x1e2228, roughness: 0.35 });
-            const acc = new THREE.MeshStandardMaterial({ color: isW ? 0xc8b8a0 : 0x4a3a2a });
-            const met = new THREE.MeshStandardMaterial({ color: isW ? 0xd4c4a8 : 0x6a5a4a });
+            const main = new THREE.MeshStandardMaterial({ color: isW ? 0xf5f0e8 : 0x2a2e35, roughness: 0.3 });
+            const acc = new THREE.MeshStandardMaterial({ color: isW ? 0xb0a090 : 0x4a3a2a });
+            
             const add = (g, y, m = main) => { 
                 const o = new THREE.Mesh(g, m); 
                 o.position.y = y; 
-                o.castShadow = true; 
-                o.receiveShadow = true; 
+                group.add(o); 
+                return o; 
+            };
+            
+            add(new THREE.CylinderGeometry(0.32, 0.38, 0.26), 0.35);
+            const neck = add(new THREE.CylinderGeometry(0.2, 0.22, 0.55), 0.65);
+            neck.position.set(0.15, 0, 0.08);
+            neck.rotation.z = 0.3;
+            
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 10), acc);
+            head.position.set(0.32, 0.95, 0.12);
+            group.add(head);
+            
+            const snout = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.18, 6), main);
+            snout.position.set(0.48, 0.9, 0.12);
+            snout.rotation.x = 0.3;
+            snout.rotation.z = -0.1;
+            group.add(snout);
+            
+            const ear1 = new THREE.Mesh(new THREE.ConeGeometry(0.07, 0.14, 6), acc);
+            ear1.position.set(0.22, 1.12, 0.05);
+            ear1.rotation.z = -0.3;
+            group.add(ear1);
+            const ear2 = ear1.clone();
+            ear2.position.set(0.2, 1.14, 0.22);
+            ear2.rotation.z = 0.1;
+            group.add(ear2);
+            
+            const mane = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.25, 5), acc);
+            mane.position.set(0.18, 0.82, 0.12);
+            mane.rotation.z = 0.5;
+            group.add(mane);
+            
+            return group;
+        }
+
+        function createPiece(type, color) {
+            if (type === 'n') return createKnight(color);
+            
+            const group = new THREE.Group();
+            const isW = color === 'w';
+            const main = new THREE.MeshStandardMaterial({ color: isW ? 0xf5f0e8 : 0x2a2e35, roughness: 0.3 });
+            const acc = new THREE.MeshStandardMaterial({ color: isW ? 0xb0a090 : 0x4a3a2a });
+            const met = new THREE.MeshStandardMaterial({ color: isW ? 0xc8b8a0 : 0x5a4a3a });
+            
+            const add = (g, y, m = main) => { 
+                const o = new THREE.Mesh(g, m); 
+                o.position.y = y; 
                 group.add(o); 
                 return o; 
             };
@@ -258,7 +328,6 @@
                 const c = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.04, 8, 16), met);
                 c.rotation.x = Math.PI/2; 
                 c.position.y = yb+0.58; 
-                c.castShadow = true; 
                 group.add(c);
             } else if (type === 'r') {
                 add(new THREE.CylinderGeometry(0.34, 0.4, 0.22), yb+0.11); 
@@ -269,16 +338,8 @@
                     b.position.y = yb+0.76;
                     b.position.x = 0.3 * Math.cos(i*Math.PI/2); 
                     b.position.z = 0.3 * Math.sin(i*Math.PI/2); 
-                    b.castShadow = true; 
                     group.add(b); 
                 }
-            } else if (type === 'n') {
-                add(new THREE.CylinderGeometry(0.32, 0.38, 0.26), yb+0.13); 
-                const neck = add(new THREE.CylinderGeometry(0.2, 0.22, 0.5), yb+0.55);
-                neck.position.set(0.12, 0, 0.06); 
-                neck.rotation.z = 0.3; 
-                const head = add(new THREE.SphereGeometry(0.2, 10), yb+0.9, acc);
-                head.position.set(0.3, 0, 0.12);
             } else if (type === 'b') {
                 add(new THREE.CylinderGeometry(0.32, 0.38, 0.22), yb+0.11); 
                 add(new THREE.ConeGeometry(0.28, 0.7, 12), yb+0.58);
@@ -290,7 +351,6 @@
                 const crown = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.04, 8, 20), met);
                 crown.rotation.x = Math.PI/2; 
                 crown.position.y = yb+1.18; 
-                crown.castShadow = true; 
                 group.add(crown);
             } else if (type === 'k') {
                 add(new THREE.CylinderGeometry(0.36, 0.42, 0.27), yb+0.13); 
@@ -298,7 +358,6 @@
                 add(new THREE.SphereGeometry(0.18, 12), yb+1.15, acc); 
                 const cross = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), met);
                 cross.position.y = yb+1.35; 
-                cross.castShadow = true; 
                 group.add(cross);
             }
             return group;
@@ -310,6 +369,13 @@
         let sel = null, turn = 'w', over = false, thinking = false, diff = 'medium', promoCallback = null;
         let isAnimating = false;
         let capturedWhite = 0, capturedBlack = 0;
+        
+        function showMessage(text) {
+            const popup = document.getElementById('message-popup');
+            popup.textContent = text;
+            popup.style.opacity = '1';
+            setTimeout(() => popup.style.opacity = '0', 2000);
+        }
         
         function updateCapturedDisplay() {
             document.getElementById('white-captured-count').textContent = capturedWhite;
@@ -336,6 +402,10 @@
         }
         
         function setupBoard() {
+            if (promoCallback) {
+                document.getElementById('promotion-panel').style.display = 'none';
+                promoCallback = null;
+            }
             pieces.forEach(p => scene.remove(p.mesh)); 
             pieces.length = 0;
             const back = ['r','n','b','q','k','b','n','r'];
@@ -425,7 +495,7 @@
             isAnimating = true;
             const startPos = p.mesh.position.clone();
             const endPos = new THREE.Vector3(toX + 0.5, 0.25, toZ + 0.5);
-            const duration = 250;
+            const duration = 200;
             const startTime = performance.now();
             
             playMoveSound(!!captured);
@@ -434,7 +504,7 @@
                 const now = performance.now();
                 const progress = Math.min((now - startTime) / duration, 1);
                 const current = startPos.clone().lerp(endPos, progress);
-                current.y += Math.sin(progress * Math.PI) * 0.15;
+                current.y += Math.sin(progress * Math.PI) * 0.1;
                 p.mesh.position.copy(current);
                 
                 if (progress < 1) {
@@ -451,7 +521,15 @@
         function promotePawn(p, endTurn) {
             const panel = document.getElementById('promotion-panel');
             panel.style.display = 'flex';
+            
+            const timeout = setTimeout(() => {
+                if (promoCallback) {
+                    promoCallback('q');
+                }
+            }, 5000);
+            
             promoCallback = (type) => {
+                clearTimeout(timeout);
                 panel.style.display = 'none';
                 const oldMesh = p.mesh;
                 scene.remove(oldMesh);
@@ -480,15 +558,31 @@
             clearHighlights();
             
             animateMove(p, tx, tz, captured, () => {
+                // Превращение пешки
                 if (p.type === 'p' && (p.z === 0 || p.z === 7)) {
                     promotePawn(p, endCallback);
                     return;
                 }
+                // Пасхалка: король дошёл до конца — получаем пешку
                 if (p.type === 'k' && (p.z === 0 || p.z === 7)) {
                     const startZ = p.color === 'w' ? 0 : 7;
-                    if (!getPiece(p.x, startZ)) {
-                        addPiece('p', p.color, p.x, startZ);
-                        updateMap();
+                    const pawnX = p.x;
+                    
+                    // Ищем свободную клетку для пешки
+                    let targetX = pawnX;
+                    let placed = false;
+                    for (let offset = 0; offset < 8; offset++) {
+                        const checkX = (pawnX + offset) % 8;
+                        if (!getPiece(checkX, startZ)) {
+                            addPiece('p', p.color, checkX, startZ);
+                            updateMap();
+                            placed = true;
+                            break;
+                        }
+                    }
+                    if (placed) {
+                        playKingSound();
+                        showMessage('👑 КОРОЛЬ ВОЗВРАЩАЕТ ПЕШКУ!');
                     }
                 }
                 if (endCallback) endCallback();
@@ -508,7 +602,10 @@
             const m = getLegalMoves(turn); 
             if (m.length === 0) {
                 over = true;
-                document.getElementById('turn-indicator').textContent = `МАТ! ПОБЕДИЛИ ${turn==='w'?'ЧЁРНЫЕ':'БЕЛЫЕ'}`;
+                const kingInCheck = inCheck(turn);
+                document.getElementById('turn-indicator').textContent = kingInCheck ? 
+                    `МАТ! ПОБЕДИЛИ ${turn==='w'?'ЧЁРНЫЕ':'БЕЛЫЕ'}` : 
+                    `ПАТ! НИЧЬЯ`;
                 return true;
             }
             return false;
@@ -605,21 +702,21 @@
             setupBoard(); 
         }));
         
-        // ========== ГРОМКАЯ МУЗЫКА (УДВОЕНА) ==========
+        // ========== МУЗЫКА ==========
         let musicOn = false;
         let musicCtx = null;
         function initMusic() {
             if (musicCtx) return;
             musicCtx = new (window.AudioContext || window.webkitAudioContext)();
             const gain = musicCtx.createGain(); 
-            gain.gain.value = 0.4; // УДВОЕНО
+            gain.gain.value = 0.3;
             gain.connect(musicCtx.destination);
             function note(f, t, d) {
                 if (!musicOn) return; 
                 const o = musicCtx.createOscillator(), g = musicCtx.createGain(); 
                 o.type = 'triangle'; 
                 o.frequency.value = f; 
-                g.gain.setValueAtTime(0.16, t); // УДВОЕНО
+                g.gain.setValueAtTime(0.12, t); 
                 g.gain.exponentialRampToValueAtTime(0.001, t+d); 
                 o.connect(g); 
                 g.connect(gain); 
@@ -647,8 +744,8 @@
         });
 
         window.addEventListener('resize', () => {
-            camera.aspect = innerWidth / innerHeight; 
-            camera.updateProjectionMatrix(); 
+            camera.aspect = innerWidth / innerHeight;
+            camera.updateProjectionMatrix();
             renderer.setSize(innerWidth, innerHeight);
         });
         
