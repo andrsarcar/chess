@@ -12,16 +12,6 @@
             color: #c9a96b; font-size: 22px; font-weight: 500; text-shadow: 2px 2px 8px rgba(0,0,0,0.7);
             letter-spacing: 4px; z-index: 50; pointer-events: none;
         }
-        #captured-panel {
-            position: absolute; top: 20px; right: 20px; z-index: 150;
-            background: rgba(20,30,45,0.85); color: #e0d5c0; padding: 15px 20px;
-            border-radius: 20px; backdrop-filter: blur(8px); border: 1px solid #6a8aaa;
-            font-size: 16px; min-width: 160px; pointer-events: none;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-        }
-        #captured-panel div { margin: 5px 0; display: flex; justify-content: space-between; }
-        .white-captured { color: #f0e6d2; }
-        .black-captured { color: #b0a090; }
         #controls {
             position: absolute; bottom: 20px; right: 15px; display: flex; flex-direction: column;
             gap: 8px; z-index: 200;
@@ -70,28 +60,30 @@
             border-radius: 30px; font-size: 14px; z-index: 100; backdrop-filter: blur(5px);
             border: 1px solid #6a8aaa; pointer-events: none;
         }
-        #message-popup {
+        #piece-hint {
             position: absolute; top: 80px; left: 50%; transform: translateX(-50%);
+            background: rgba(0,0,0,0.7); color: #ffd966; padding: 8px 24px;
+            border-radius: 30px; font-size: 18px; font-weight: bold; z-index: 400;
+            opacity: 0; transition: opacity 0.2s; pointer-events: none;
+            border: 1px solid #c9a96b; text-transform: uppercase;
+        }
+        #message-popup {
+            position: absolute; top: 130px; left: 50%; transform: translateX(-50%);
             background: rgba(201, 169, 107, 0.9); color: #111; padding: 8px 20px;
             border-radius: 30px; font-size: 16px; font-weight: bold; z-index: 400;
             opacity: 0; transition: opacity 0.3s; pointer-events: none;
         }
         @media (max-width: 600px) {
             .btn { padding: 12px 14px; font-size: 13px; }
-            #captured-panel { font-size: 14px; padding: 10px 15px; min-width: 130px; }
         }
     </style>
 </head>
 <body>
     <div id="title">♔ ШАХМАТЫ ПРОТИВ БОТА</div>
     
-    <div id="captured-panel">
-        <div class="white-captured">⚪ Съедено белых: <span id="white-captured-count">0</span></div>
-        <div class="black-captured">⚫ Съедено чёрных: <span id="black-captured-count">0</span></div>
-    </div>
-    
     <div id="turn-indicator">ХОД БЕЛЫХ</div>
-    <div id="message-popup">👑 КОРОЛЬ ВОЗВРАЩАЕТ ПЕШКУ!</div>
+    <div id="piece-hint">♙ ПЕШКА</div>
+    <div id="message-popup">👑 КОРОЛЬ ПРИВЁЛ ПОДКРЕПЛЕНИЕ!</div>
     
     <button id="musicBtn">🎵 МУЗЫКА</button>
     
@@ -123,11 +115,11 @@
         // ========== ЗВУКИ ==========
         const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
-        function playMoveSound(isCapture = false) {
+        function playMoveSound(isCapture = false, isCastle = false) {
             if (audioCtx.state === 'suspended') audioCtx.resume();
             const now = audioCtx.currentTime;
             const gain = audioCtx.createGain();
-            gain.gain.value = isCapture ? 0.4 : 0.3;
+            gain.gain.value = isCapture ? 0.4 : (isCastle ? 0.35 : 0.3);
             gain.connect(audioCtx.destination);
             
             if (isCapture) {
@@ -150,6 +142,26 @@
                 gain2.connect(audioCtx.destination);
                 osc2.start(now);
                 osc2.stop(now + 0.1);
+            } else if (isCastle) {
+                const osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.value = 200;
+                gain.gain.setValueAtTime(0.35, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.2);
+                osc.connect(gain);
+                osc.start(now);
+                osc.stop(now + 0.2);
+                
+                const osc2 = audioCtx.createOscillator();
+                const gain2 = audioCtx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.value = 300;
+                gain2.gain.setValueAtTime(0.2, now + 0.05);
+                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.25);
+                osc2.connect(gain2);
+                gain2.connect(audioCtx.destination);
+                osc2.start(now + 0.05);
+                osc2.stop(now + 0.25);
             } else {
                 const osc = audioCtx.createOscillator();
                 osc.type = 'triangle';
@@ -245,6 +257,7 @@
         const highMat = new THREE.MeshStandardMaterial({ color: 0x44aaff, transparent: true, opacity: 0.5 });
         const attackMat = new THREE.MeshStandardMaterial({ color: 0xff5544, transparent: true, opacity: 0.5 });
         const selMat = new THREE.MeshStandardMaterial({ color: 0xffdd44, transparent: true, opacity: 0.5 });
+        const castleMat = new THREE.MeshStandardMaterial({ color: 0x88ff88, transparent: true, opacity: 0.5 });
         
         const highlights = [];
         for (let i = 0; i < 8; i++) {
@@ -300,6 +313,14 @@
             mane.position.set(0.18, 0.82, 0.12);
             mane.rotation.z = 0.5;
             group.add(mane);
+            
+            const eyeMat = new THREE.MeshStandardMaterial({ color: 0x000000 });
+            const eye1 = new THREE.Mesh(new THREE.SphereGeometry(0.03, 6), eyeMat);
+            eye1.position.set(0.4, 1.0, 0.05);
+            group.add(eye1);
+            const eye2 = eye1.clone();
+            eye2.position.set(0.4, 1.0, 0.19);
+            group.add(eye2);
             
             return group;
         }
@@ -368,18 +389,23 @@
         const pieceMap = new Map();
         let sel = null, turn = 'w', over = false, thinking = false, diff = 'medium', promoCallback = null;
         let isAnimating = false;
-        let capturedWhite = 0, capturedBlack = 0;
+        
+        const pieceNames = { p: 'ПЕШКА', r: 'ЛАДЬЯ', n: 'КОНЬ', b: 'СЛОН', q: 'ФЕРЗЬ', k: 'КОРОЛЬ' };
+        
+        function showPieceHint(piece) {
+            const hint = document.getElementById('piece-hint');
+            const colorText = piece.color === 'w' ? 'БЕЛ' : 'ЧЁРН';
+            const name = pieceNames[piece.type];
+            hint.textContent = `${colorText}${colorText==='БЕЛ'?'ЫЙ':'ЫЙ'} ${name}`;
+            hint.style.opacity = '1';
+            setTimeout(() => hint.style.opacity = '0', 1500);
+        }
         
         function showMessage(text) {
             const popup = document.getElementById('message-popup');
             popup.textContent = text;
             popup.style.opacity = '1';
             setTimeout(() => popup.style.opacity = '0', 2000);
-        }
-        
-        function updateCapturedDisplay() {
-            document.getElementById('white-captured-count').textContent = capturedWhite;
-            document.getElementById('black-captured-count').textContent = capturedBlack;
         }
         
         function updateTurnIndicator() {
@@ -398,7 +424,7 @@
             const m = createPiece(t, c); 
             m.position.set(x+0.5, 0.25, z+0.5); 
             scene.add(m); 
-            pieces.push({mesh: m, type: t, color: c, x, z});
+            pieces.push({mesh: m, type: t, color: c, x, z, hasMoved: false});
         }
         
         function setupBoard() {
@@ -408,6 +434,7 @@
             }
             pieces.forEach(p => scene.remove(p.mesh)); 
             pieces.length = 0;
+            
             const back = ['r','n','b','q','k','b','n','r'];
             for (let i = 0; i < 8; i++) { 
                 addPiece(back[i], 'w', i, 0); 
@@ -415,15 +442,13 @@
                 addPiece(back[i], 'b', i, 7); 
                 addPiece('p', 'b', i, 6); 
             }
+            
             updateMap(); 
             turn = 'w'; 
             over = false; 
             thinking = false; 
             sel = null; 
             clearHighlights();
-            capturedWhite = 0; 
-            capturedBlack = 0;
-            updateCapturedDisplay();
             updateTurnIndicator();
             isAnimating = false;
         }
@@ -444,7 +469,25 @@
             if (p.type === 'n') return (adx===2&&adz===1) || (adx===1&&adz===2);
             if (p.type === 'b') return adx===adz && !pieceBetween(p.x, p.z, tx, tz);
             if (p.type === 'q') return (dx===0||dz===0||adx===adz) && !pieceBetween(p.x, p.z, tx, tz);
-            if (p.type === 'k') return adx<=1 && adz<=1;
+            if (p.type === 'k') {
+                if (adx <= 1 && adz <= 1) return true;
+                // Рокировка
+                if (!p.hasMoved && adx === 2 && dz === 0 && !inCheck(p.color)) {
+                    const row = p.z;
+                    const isKingSide = tx > p.x;
+                    const rookX = isKingSide ? 7 : 0;
+                    const rook = getPiece(rookX, row);
+                    if (!rook || rook.type !== 'r' || rook.hasMoved) return false;
+                    const step = isKingSide ? 1 : -1;
+                    for (let x = p.x + step; x !== rookX; x += step) {
+                        if (getPiece(x, row)) return false;
+                    }
+                    const midX = p.x + step;
+                    if (wouldLeaveCheck(p, midX, row)) return false;
+                    return true;
+                }
+                return false;
+            }
             return false;
         }
         
@@ -486,19 +529,23 @@
             highlights.forEach(h => {
                 if (isValidMove(p, h.x, h.z) && !wouldLeaveCheck(p, h.x, h.z)) {
                     h.mesh.visible = true; 
-                    h.mesh.material = getPiece(h.x, h.z) ? attackMat : highMat;
+                    if (p.type === 'k' && Math.abs(h.x - p.x) === 2) {
+                        h.mesh.material = castleMat;
+                    } else {
+                        h.mesh.material = getPiece(h.x, h.z) ? attackMat : highMat;
+                    }
                 }
             });
         }
         
-        function animateMove(p, toX, toZ, captured, onComplete) {
+        function animateMove(p, toX, toZ, isCastle = false, rookMove = null, onComplete) {
             isAnimating = true;
             const startPos = p.mesh.position.clone();
             const endPos = new THREE.Vector3(toX + 0.5, 0.25, toZ + 0.5);
-            const duration = 200;
+            const duration = isCastle ? 250 : 200;
             const startTime = performance.now();
             
-            playMoveSound(!!captured);
+            playMoveSound(false, isCastle);
             
             function animate() {
                 const now = performance.now();
@@ -515,6 +562,27 @@
                     if (onComplete) onComplete();
                 }
             }
+            
+            if (rookMove) {
+                const rook = rookMove.piece;
+                const rStart = rook.mesh.position.clone();
+                const rEnd = new THREE.Vector3(rookMove.toX + 0.5, 0.25, rookMove.toZ + 0.5);
+                const rStartTime = performance.now();
+                
+                function animateRook() {
+                    const now = performance.now();
+                    const progress = Math.min((now - rStartTime) / duration, 1);
+                    const current = rStart.clone().lerp(rEnd, progress);
+                    current.y += Math.sin(progress * Math.PI) * 0.1;
+                    rook.mesh.position.copy(current);
+                    
+                    if (progress < 1) {
+                        requestAnimationFrame(animateRook);
+                    }
+                }
+                requestAnimationFrame(animateRook);
+            }
+            
             requestAnimationFrame(animate);
         }
 
@@ -523,9 +591,7 @@
             panel.style.display = 'flex';
             
             const timeout = setTimeout(() => {
-                if (promoCallback) {
-                    promoCallback('q');
-                }
+                if (promoCallback) promoCallback('q');
             }, 5000);
             
             promoCallback = (type) => {
@@ -537,7 +603,7 @@
                 const newMesh = createPiece(type, p.color);
                 newMesh.position.set(p.x+0.5, 0.25, p.z+0.5);
                 scene.add(newMesh);
-                pieces[idx] = { mesh: newMesh, type, color: p.color, x: p.x, z: p.z };
+                pieces[idx] = { mesh: newMesh, type, color: p.color, x: p.x, z: p.z, hasMoved: true };
                 updateMap();
                 promoCallback = null;
                 if (endTurn) endTurn();
@@ -546,43 +612,62 @@
 
         function executeMove(p, tx, tz, endCallback) {
             const captured = getPiece(tx, tz);
+            let isCastle = false;
+            let rookMove = null;
+            
+            if (p.type === 'k' && Math.abs(tx - p.x) === 2) {
+                isCastle = true;
+                const row = p.z;
+                const isKingSide = tx > p.x;
+                const rookX = isKingSide ? 7 : 0;
+                const rook = getPiece(rookX, row);
+                const newRookX = isKingSide ? tx - 1 : tx + 1;
+                
+                if (rook) {
+                    rookMove = { piece: rook, toX: newRookX, toZ: row };
+                    rook.x = newRookX;
+                    rook.hasMoved = true;
+                }
+            }
+            
             if (captured) {
                 scene.remove(captured.mesh);
                 pieces.splice(pieces.indexOf(captured), 1);
-                if (captured.color === 'w') capturedWhite++; else capturedBlack++;
-                updateCapturedDisplay();
             }
+            
+            if (p.type === 'k') p.hasMoved = true;
+            if (p.type === 'r') p.hasMoved = true;
             
             p.x = tx; p.z = tz;
             updateMap();
             clearHighlights();
             
-            animateMove(p, tx, tz, captured, () => {
-                // Превращение пешки
+            animateMove(p, tx, tz, isCastle, rookMove, () => {
                 if (p.type === 'p' && (p.z === 0 || p.z === 7)) {
                     promotePawn(p, endCallback);
                     return;
                 }
-                // Пасхалка: король дошёл до конца — получаем пешку
-                if (p.type === 'k' && (p.z === 0 || p.z === 7)) {
-                    const startZ = p.color === 'w' ? 0 : 7;
-                    const pawnX = p.x;
+                // Пасхалка: король дошёл до ВРАЖЕСКОГО края
+                if (p.type === 'k') {
+                    const enemyEdge = p.color === 'w' ? 7 : 0;
+                    const homeRow = p.color === 'w' ? 0 : 7;
                     
-                    // Ищем свободную клетку для пешки
-                    let targetX = pawnX;
-                    let placed = false;
-                    for (let offset = 0; offset < 8; offset++) {
-                        const checkX = (pawnX + offset) % 8;
-                        if (!getPiece(checkX, startZ)) {
-                            addPiece('p', p.color, checkX, startZ);
-                            updateMap();
-                            placed = true;
-                            break;
+                    if (p.z === enemyEdge) {
+                        let targetX = p.x;
+                        let placed = false;
+                        for (let offset = 0; offset < 8; offset++) {
+                            const checkX = (p.x + offset) % 8;
+                            if (!getPiece(checkX, homeRow)) {
+                                addPiece('p', p.color, checkX, homeRow);
+                                updateMap();
+                                placed = true;
+                                break;
+                            }
                         }
-                    }
-                    if (placed) {
-                        playKingSound();
-                        showMessage('👑 КОРОЛЬ ВОЗВРАЩАЕТ ПЕШКУ!');
+                        if (placed) {
+                            playKingSound();
+                            showMessage(`👑 ${p.color==='w'?'БЕЛЫЙ':'ЧЁРНЫЙ'} КОРОЛЬ ПРИВЁЛ ПОДКРЕПЛЕНИЕ!`);
+                        }
                     }
                 }
                 if (endCallback) endCallback();
@@ -675,7 +760,8 @@
                 const p = pieces.find(p => p.mesh === hit || p.mesh.children.includes(hit)); 
                 if (p && p.color === 'w') { 
                     sel = p; 
-                    showMoves(p); 
+                    showMoves(p);
+                    showPieceHint(p);
                 }
             } else { 
                 sel = null; 
