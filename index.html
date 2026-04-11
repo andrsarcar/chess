@@ -12,12 +12,16 @@
             color: #d4c5a9; font-size: 22px; font-weight: 500; text-shadow: 2px 2px 8px rgba(0,0,0,0.7);
             letter-spacing: 4px; z-index: 50; pointer-events: none;
         }
-        #status {
-            position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
-            background: rgba(20,30,45,0.85); color: #e8d8b8; padding: 10px 25px; border-radius: 40px;
-            font-size: 16px; z-index: 100; border: 1px solid #6a8aaa; backdrop-filter: blur(8px);
-            white-space: nowrap; pointer-events: none; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        #captured-panel {
+            position: absolute; top: 20px; right: 20px; z-index: 150;
+            background: rgba(15,25,35,0.8); color: #e0d5c0; padding: 15px 20px;
+            border-radius: 20px; backdrop-filter: blur(8px); border: 1px solid #6a8aaa;
+            font-size: 16px; min-width: 160px; pointer-events: none;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
+        #captured-panel div { margin: 5px 0; display: flex; justify-content: space-between; }
+        .white-captured { color: #f0e6d2; }
+        .black-captured { color: #b0a090; }
         #controls {
             position: absolute; bottom: 20px; right: 15px; display: flex; flex-direction: column;
             gap: 8px; z-index: 200;
@@ -60,15 +64,28 @@
             min-width: 70px; transition: 0.15s;
         }
         .promo-btn:active { background: #c9a96b; transform: scale(0.9); }
+        #turn-indicator {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%);
+            background: rgba(20,30,45,0.7); color: #c9a96b; padding: 6px 20px;
+            border-radius: 30px; font-size: 14px; z-index: 100; backdrop-filter: blur(5px);
+            border: 1px solid #6a8aaa; pointer-events: none;
+        }
         @media (max-width: 600px) {
             .btn { padding: 12px 14px; font-size: 13px; }
-            #status { bottom: 120px; font-size: 15px; }
+            #captured-panel { font-size: 14px; padding: 10px 15px; min-width: 130px; }
         }
     </style>
 </head>
 <body>
     <div id="title">♔ ШАХМАТЫ ПРОТИВ БОТА</div>
-    <div id="status">👆 ВЫБЕРИТЕ ФИГУРУ</div>
+    
+    <div id="captured-panel">
+        <div class="white-captured">⚪ Съедено белых: <span id="white-captured-count">0</span></div>
+        <div class="black-captured">⚫ Съедено чёрных: <span id="black-captured-count">0</span></div>
+    </div>
+    
+    <div id="turn-indicator">ХОД БЕЛЫХ</div>
+    
     <button id="musicBtn">🎵 МУЗЫКА</button>
     
     <div id="promotion-panel">
@@ -80,7 +97,6 @@
 
     <div id="controls">
         <div class="ctrl-row">
-            <button class="btn" id="resetCamera">📷 СБРОС</button>
             <button class="btn" id="newGame">🔄 НОВАЯ</button>
         </div>
         <div class="diff-panel">
@@ -91,126 +107,347 @@
     </div>
 
     <script type="importmap">
-        {"imports": {"three": "https://unpkg.com/three@0.128.0/build/three.module.js", "three/addons/": "https://unpkg.com/three@0.128.0/examples/jsm/"}}
+        {"imports": {"three": "https://unpkg.com/three@0.128.0/build/three.module.js"}}
     </script>
 
     <script type="module">
         import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+        // ========== ЗВУКИ (В 2 РАЗА ГРОМЧЕ) ==========
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        function playMoveSound(isCapture = false) {
+            if (audioCtx.state === 'suspended') audioCtx.resume();
+            const now = audioCtx.currentTime;
+            const gain = audioCtx.createGain();
+            gain.gain.value = isCapture ? 0.4 : 0.3; // УДВОЕНО
+            gain.connect(audioCtx.destination);
+            
+            if (isCapture) {
+                const osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.value = 180;
+                gain.gain.setValueAtTime(0.4, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15);
+                osc.connect(gain);
+                osc.start(now);
+                osc.stop(now + 0.15);
+                
+                const osc2 = audioCtx.createOscillator();
+                const gain2 = audioCtx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.value = 90;
+                gain2.gain.setValueAtTime(0.5, now);
+                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.1);
+                osc2.connect(gain2);
+                gain2.connect(audioCtx.destination);
+                osc2.start(now);
+                osc2.stop(now + 0.1);
+            } else {
+                const osc = audioCtx.createOscillator();
+                osc.type = 'triangle';
+                osc.frequency.value = 140;
+                gain.gain.setValueAtTime(0.3, now);
+                gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+                osc.connect(gain);
+                osc.start(now);
+                osc.stop(now + 0.08);
+                
+                const osc2 = audioCtx.createOscillator();
+                const gain2 = audioCtx.createGain();
+                osc2.type = 'sine';
+                osc2.frequency.value = 220;
+                gain2.gain.setValueAtTime(0.16, now);
+                gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+                osc2.connect(gain2);
+                gain2.connect(audioCtx.destination);
+                osc2.start(now);
+                osc2.stop(now + 0.04);
+            }
+        }
+
+        // ========== СЦЕНА С ФИКСИРОВАННОЙ КАМЕРОЙ (ВИДНО ВСЕ УГЛЫ) ==========
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x152530);
-        const camera = new THREE.PerspectiveCamera(45, innerWidth/innerHeight, 0.1, 1000);
-        camera.position.set(4.5, 6.5, -4); camera.lookAt(3.5, 0.5, 3.5);
+        
+        const camera = new THREE.PerspectiveCamera(50, innerWidth/innerHeight, 0.1, 1000);
+        // Отодвинутая камера под углом — видно все углы доски
+        camera.position.set(5.5, 8.0, -5.0);
+        camera.lookAt(3.5, 0.5, 3.5);
+        
         const renderer = new THREE.WebGLRenderer({ antialias: true });
-        renderer.setSize(innerWidth, innerHeight); renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-        renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+        renderer.setSize(innerWidth, innerHeight); 
+        renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+        renderer.shadowMap.enabled = true; 
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
         document.body.appendChild(renderer.domElement);
 
         // Свет
         const dirLight = new THREE.DirectionalLight(0xfff5e6, 1.3);
-        dirLight.position.set(6,14,5); dirLight.castShadow = true; dirLight.receiveShadow = true;
-        dirLight.shadow.mapSize.width = 2048; dirLight.shadow.mapSize.height = 2048;
-        const d=11; dirLight.shadow.camera.left = -d; dirLight.shadow.camera.right = d;
-        dirLight.shadow.camera.top = d; dirLight.shadow.camera.bottom = -d;
-        dirLight.shadow.camera.near = 1; dirLight.shadow.camera.far = 28;
-        scene.add(dirLight); scene.add(new THREE.AmbientLight(0x405570, 0.65));
+        dirLight.position.set(6, 14, 5); 
+        dirLight.castShadow = true; 
+        dirLight.receiveShadow = true;
+        dirLight.shadow.mapSize.width = 2048; 
+        dirLight.shadow.mapSize.height = 2048;
+        const d = 11; 
+        dirLight.shadow.camera.left = -d; 
+        dirLight.shadow.camera.right = d;
+        dirLight.shadow.camera.top = d; 
+        dirLight.shadow.camera.bottom = -d;
+        dirLight.shadow.camera.near = 1; 
+        dirLight.shadow.camera.far = 28;
+        scene.add(dirLight); 
+        scene.add(new THREE.AmbientLight(0x405570, 0.65));
         
         // Доска
         const darkMat = new THREE.MeshStandardMaterial({ color: 0x6b4e3a, roughness: 0.55 });
         const lightMat = new THREE.MeshStandardMaterial({ color: 0xe8d0b0, roughness: 0.45 });
-        const base = new THREE.Mesh(new THREE.BoxGeometry(8.5,0.15,8.5), new THREE.MeshStandardMaterial({color:0x3a2518}));
-        base.position.set(4,-0.15,4); base.receiveShadow = true; base.castShadow = true; scene.add(base);
-        for (let i=0;i<8;i++) for (let j=0;j<8;j++) {
-            const tile = new THREE.Mesh(new THREE.BoxGeometry(0.98,0.1,0.98), (i+j)%2===0?lightMat:darkMat);
-            tile.position.set(i+0.5,0,j+0.5); tile.receiveShadow = true; scene.add(tile);
+        const base = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.15, 8.5), new THREE.MeshStandardMaterial({color: 0x3a2518}));
+        base.position.set(4, -0.15, 4); 
+        base.receiveShadow = true; 
+        base.castShadow = true; 
+        scene.add(base);
+        
+        for (let i = 0; i < 8; i++) {
+            for (let j = 0; j < 8; j++) {
+                const tile = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.1, 0.98), (i+j)%2 === 0 ? lightMat : darkMat);
+                tile.position.set(i + 0.5, 0, j + 0.5); 
+                tile.receiveShadow = true; 
+                scene.add(tile);
+            }
         }
 
         // Подсветка
-        const highMat = new THREE.MeshStandardMaterial({ color:0x44aaff, transparent:true, opacity:0.45 });
-        const attackMat = new THREE.MeshStandardMaterial({ color:0xff5544, transparent:true, opacity:0.5 });
-        const selMat = new THREE.MeshStandardMaterial({ color:0xffdd44, transparent:true, opacity:0.5 });
+        const highMat = new THREE.MeshStandardMaterial({ color: 0x44aaff, transparent: true, opacity: 0.45 });
+        const attackMat = new THREE.MeshStandardMaterial({ color: 0xff5544, transparent: true, opacity: 0.5 });
+        const selMat = new THREE.MeshStandardMaterial({ color: 0xffdd44, transparent: true, opacity: 0.5 });
+        
         const highlights = [];
-        for (let i=0;i<8;i++) for (let j=0;j<8;j++) {
-            const h = new THREE.Mesh(new THREE.CylinderGeometry(0.46,0.46,0.02,8), highMat.clone());
-            h.rotation.x = Math.PI/2; h.position.set(i+0.5,0.17,j+0.5); h.visible = false;
-            scene.add(h); highlights.push({mesh:h, x:i, z:j});
+        for (let i = 0; i < 8; i++) {
+            for (let j = 0; j < 8; j++) {
+                const h = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.46, 0.02, 8), highMat.clone());
+                h.rotation.x = Math.PI / 2; 
+                h.position.set(i + 0.5, 0.17, j + 0.5); 
+                h.visible = false;
+                scene.add(h); 
+                highlights.push({mesh: h, x: i, z: j});
+            }
         }
-
-        const controls = new OrbitControls(camera, renderer.domElement);
-        controls.enableDamping = true; controls.target.set(3.5,0.5,3.5);
-        controls.maxPolarAngle = Math.PI/2.1; controls.minDistance = 4.5; controls.maxDistance = 15;
-        function resetCamera() { camera.position.set(4.5,6.5,-4); controls.target.set(3.5,0.5,3.5); controls.update(); }
 
         // Фигуры
         function createPiece(type, color) {
             const group = new THREE.Group();
-            const isW = color==='w';
-            const main = new THREE.MeshStandardMaterial({ color: isW?0xf5f0e8:0x1e2228, roughness:0.35 });
-            const acc = new THREE.MeshStandardMaterial({ color: isW?0xc8b8a0:0x4a3a2a });
-            const met = new THREE.MeshStandardMaterial({ color: isW?0xd4c4a8:0x6a5a4a });
-            const add = (g,y,m=main) => { const o=new THREE.Mesh(g,m); o.position.y=y; o.castShadow=true; o.receiveShadow=true; group.add(o); return o; };
-            const yb=0.22;
-            if (type==='p') {
-                add(new THREE.CylinderGeometry(0.3,0.36,0.18), yb+0.09); add(new THREE.SphereGeometry(0.24,16), yb+0.42);
-                add(new THREE.SphereGeometry(0.16,12), yb+0.72, acc); const c=new THREE.Mesh(new THREE.TorusGeometry(0.2,0.04,8,16),met);
-                c.rotation.x=Math.PI/2; c.position.y=yb+0.58; c.castShadow=true; group.add(c);
-            } else if (type==='r') {
-                add(new THREE.CylinderGeometry(0.34,0.4,0.22), yb+0.11); add(new THREE.CylinderGeometry(0.28,0.3,0.55), yb+0.45);
-                add(new THREE.CylinderGeometry(0.22,0.24,0.18), yb+0.88, acc);
-                for (let i=0;i<4;i++) { const b=new THREE.Mesh(new THREE.BoxGeometry(0.1,0.16,0.16),acc); b.position.y=yb+0.76;
-                    b.position.x=0.3*Math.cos(i*Math.PI/2); b.position.z=0.3*Math.sin(i*Math.PI/2); b.castShadow=true; group.add(b); }
-            } else if (type==='n') {
-                add(new THREE.CylinderGeometry(0.32,0.38,0.26), yb+0.13); const neck=add(new THREE.CylinderGeometry(0.2,0.22,0.5), yb+0.55);
-                neck.position.set(0.12,0,0.06); neck.rotation.z=0.3; const head=add(new THREE.SphereGeometry(0.2,10), yb+0.9, acc);
-                head.position.set(0.3,0,0.12);
-            } else if (type==='b') {
-                add(new THREE.CylinderGeometry(0.32,0.38,0.22), yb+0.11); add(new THREE.ConeGeometry(0.28,0.7,12), yb+0.58);
-                add(new THREE.SphereGeometry(0.16,10), yb+1.0, acc);
-            } else if (type==='q') {
-                add(new THREE.CylinderGeometry(0.36,0.42,0.25), yb+0.12); add(new THREE.ConeGeometry(0.3,0.8,16), yb+0.62);
-                add(new THREE.SphereGeometry(0.18,12), yb+1.1, acc); const crown=new THREE.Mesh(new THREE.TorusGeometry(0.14,0.04,8,20),met);
-                crown.rotation.x=Math.PI/2; crown.position.y=yb+1.18; crown.castShadow=true; group.add(crown);
-            } else if (type==='k') {
-                add(new THREE.CylinderGeometry(0.36,0.42,0.27), yb+0.13); add(new THREE.ConeGeometry(0.3,0.85,16), yb+0.65);
-                add(new THREE.SphereGeometry(0.18,12), yb+1.15, acc); const cross=new THREE.Mesh(new THREE.BoxGeometry(0.12,0.35,0.12),met);
-                cross.position.y=yb+1.35; cross.castShadow=true; group.add(cross);
+            const isW = color === 'w';
+            const main = new THREE.MeshStandardMaterial({ color: isW ? 0xf5f0e8 : 0x1e2228, roughness: 0.35 });
+            const acc = new THREE.MeshStandardMaterial({ color: isW ? 0xc8b8a0 : 0x4a3a2a });
+            const met = new THREE.MeshStandardMaterial({ color: isW ? 0xd4c4a8 : 0x6a5a4a });
+            const add = (g, y, m = main) => { 
+                const o = new THREE.Mesh(g, m); 
+                o.position.y = y; 
+                o.castShadow = true; 
+                o.receiveShadow = true; 
+                group.add(o); 
+                return o; 
+            };
+            const yb = 0.22;
+            
+            if (type === 'p') {
+                add(new THREE.CylinderGeometry(0.3, 0.36, 0.18), yb+0.09); 
+                add(new THREE.SphereGeometry(0.24, 16), yb+0.42);
+                add(new THREE.SphereGeometry(0.16, 12), yb+0.72, acc); 
+                const c = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.04, 8, 16), met);
+                c.rotation.x = Math.PI/2; 
+                c.position.y = yb+0.58; 
+                c.castShadow = true; 
+                group.add(c);
+            } else if (type === 'r') {
+                add(new THREE.CylinderGeometry(0.34, 0.4, 0.22), yb+0.11); 
+                add(new THREE.CylinderGeometry(0.28, 0.3, 0.55), yb+0.45);
+                add(new THREE.CylinderGeometry(0.22, 0.24, 0.18), yb+0.88, acc);
+                for (let i = 0; i < 4; i++) { 
+                    const b = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.16, 0.16), acc); 
+                    b.position.y = yb+0.76;
+                    b.position.x = 0.3 * Math.cos(i*Math.PI/2); 
+                    b.position.z = 0.3 * Math.sin(i*Math.PI/2); 
+                    b.castShadow = true; 
+                    group.add(b); 
+                }
+            } else if (type === 'n') {
+                add(new THREE.CylinderGeometry(0.32, 0.38, 0.26), yb+0.13); 
+                const neck = add(new THREE.CylinderGeometry(0.2, 0.22, 0.5), yb+0.55);
+                neck.position.set(0.12, 0, 0.06); 
+                neck.rotation.z = 0.3; 
+                const head = add(new THREE.SphereGeometry(0.2, 10), yb+0.9, acc);
+                head.position.set(0.3, 0, 0.12);
+            } else if (type === 'b') {
+                add(new THREE.CylinderGeometry(0.32, 0.38, 0.22), yb+0.11); 
+                add(new THREE.ConeGeometry(0.28, 0.7, 12), yb+0.58);
+                add(new THREE.SphereGeometry(0.16, 10), yb+1.0, acc);
+            } else if (type === 'q') {
+                add(new THREE.CylinderGeometry(0.36, 0.42, 0.25), yb+0.12); 
+                add(new THREE.ConeGeometry(0.3, 0.8, 16), yb+0.62);
+                add(new THREE.SphereGeometry(0.18, 12), yb+1.1, acc); 
+                const crown = new THREE.Mesh(new THREE.TorusGeometry(0.14, 0.04, 8, 20), met);
+                crown.rotation.x = Math.PI/2; 
+                crown.position.y = yb+1.18; 
+                crown.castShadow = true; 
+                group.add(crown);
+            } else if (type === 'k') {
+                add(new THREE.CylinderGeometry(0.36, 0.42, 0.27), yb+0.13); 
+                add(new THREE.ConeGeometry(0.3, 0.85, 16), yb+0.65);
+                add(new THREE.SphereGeometry(0.18, 12), yb+1.15, acc); 
+                const cross = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.35, 0.12), met);
+                cross.position.y = yb+1.35; 
+                cross.castShadow = true; 
+                group.add(cross);
             }
             return group;
         }
 
-        const pieces = []; const pieceMap = new Map();
-        let sel=null, turn='w', over=false, thinking=false, diff='medium', promoCallback=null;
-        function getKey(x,z){return `${x},${z}`;} function getPiece(x,z){return pieceMap.get(getKey(x,z));}
-        function updateMap(){pieceMap.clear(); pieces.forEach(p=>pieceMap.set(getKey(p.x,p.z),p));}
-        function addPiece(t,c,x,z){const m=createPiece(t,c); m.position.set(x+0.5,0.25,z+0.5); scene.add(m); pieces.push({mesh:m, type:t, color:c, x, z});}
+        // ========== ИГРОВАЯ ЛОГИКА ==========
+        const pieces = []; 
+        const pieceMap = new Map();
+        let sel = null, turn = 'w', over = false, thinking = false, diff = 'medium', promoCallback = null;
+        let isAnimating = false;
+        let capturedWhite = 0, capturedBlack = 0;
+        
+        function updateCapturedDisplay() {
+            document.getElementById('white-captured-count').textContent = capturedWhite;
+            document.getElementById('black-captured-count').textContent = capturedBlack;
+        }
+        
+        function updateTurnIndicator() {
+            document.getElementById('turn-indicator').textContent = turn === 'w' ? 'ХОД БЕЛЫХ' : 'ХОД ЧЁРНЫХ (БОТ)';
+        }
+        
+        function getKey(x, z) { return `${x},${z}`; }
+        function getPiece(x, z) { return pieceMap.get(getKey(x, z)); }
+        
+        function updateMap() {
+            pieceMap.clear();
+            pieces.forEach(p => pieceMap.set(getKey(p.x, p.z), p));
+        }
+        
+        function addPiece(t, c, x, z) {
+            const m = createPiece(t, c); 
+            m.position.set(x+0.5, 0.25, z+0.5); 
+            scene.add(m); 
+            pieces.push({mesh: m, type: t, color: c, x, z});
+        }
         
         function setupBoard() {
-            pieces.forEach(p=>scene.remove(p.mesh)); pieces.length=0;
-            const back=['r','n','b','q','k','b','n','r'];
-            for (let i=0;i<8;i++) { addPiece(back[i],'w',i,0); addPiece('p','w',i,1); addPiece(back[i],'b',i,7); addPiece('p','b',i,6); }
-            updateMap(); turn='w'; over=false; thinking=false; sel=null; clearHighlights();
-            document.getElementById('status').textContent='👆 ВЫБЕРИТЕ ФИГУРУ'; resetCamera();
+            pieces.forEach(p => scene.remove(p.mesh)); 
+            pieces.length = 0;
+            const back = ['r','n','b','q','k','b','n','r'];
+            for (let i = 0; i < 8; i++) { 
+                addPiece(back[i], 'w', i, 0); 
+                addPiece('p', 'w', i, 1); 
+                addPiece(back[i], 'b', i, 7); 
+                addPiece('p', 'b', i, 6); 
+            }
+            updateMap(); 
+            turn = 'w'; 
+            over = false; 
+            thinking = false; 
+            sel = null; 
+            clearHighlights();
+            capturedWhite = 0; 
+            capturedBlack = 0;
+            updateCapturedDisplay();
+            updateTurnIndicator();
+            isAnimating = false;
         }
 
-        function isValidMove(p,tx,tz){
-            if(tx<0||tx>7||tz<0||tz>7)return false;
-            const t=getPiece(tx,tz); if(t&&t.color===p.color)return false;
-            const dx=tx-p.x, dz=tz-p.z, adx=Math.abs(dx), adz=Math.abs(dz);
-            if(p.type==='p'){const d=p.color==='w'?1:-1; if(dx===0&&dz===d&&!t)return true; if(dx===0&&dz===2*d&&((p.color==='w'&&p.z===1)||(p.color==='b'&&p.z===6))&&!t&&!getPiece(p.x,p.z+d))return true; if(adx===1&&dz===d&&t)return true; return false;}
-            if(p.type==='r')return (dx===0||dz===0)&&!pieceBetween(p.x,p.z,tx,tz);
-            if(p.type==='n')return (adx===2&&adz===1)||(adx===1&&adz===2);
-            if(p.type==='b')return adx===adz&&!pieceBetween(p.x,p.z,tx,tz);
-            if(p.type==='q')return (dx===0||dz===0||adx===adz)&&!pieceBetween(p.x,p.z,tx,tz);
-            if(p.type==='k')return adx<=1&&adz<=1;
+        function isValidMove(p, tx, tz) {
+            if (tx < 0 || tx > 7 || tz < 0 || tz > 7) return false;
+            const t = getPiece(tx, tz); 
+            if (t && t.color === p.color) return false;
+            const dx = tx - p.x, dz = tz - p.z, adx = Math.abs(dx), adz = Math.abs(dz);
+            if (p.type === 'p') {
+                const dir = p.color === 'w' ? 1 : -1;
+                if (dx === 0 && dz === dir && !t) return true;
+                if (dx === 0 && dz === 2*dir && ((p.color==='w'&&p.z===1)||(p.color==='b'&&p.z===6)) && !t && !getPiece(p.x, p.z+dir)) return true;
+                if (adx === 1 && dz === dir && t) return true;
+                return false;
+            }
+            if (p.type === 'r') return (dx===0 || dz===0) && !pieceBetween(p.x, p.z, tx, tz);
+            if (p.type === 'n') return (adx===2&&adz===1) || (adx===1&&adz===2);
+            if (p.type === 'b') return adx===adz && !pieceBetween(p.x, p.z, tx, tz);
+            if (p.type === 'q') return (dx===0||dz===0||adx===adz) && !pieceBetween(p.x, p.z, tx, tz);
+            if (p.type === 'k') return adx<=1 && adz<=1;
             return false;
         }
-        function pieceBetween(x1,z1,x2,z2){const dx=Math.sign(x2-x1),dz=Math.sign(z2-z1); let x=x1+dx,z=z1+dz; while(x!==x2||z!==z2){if(getPiece(x,z))return true; x+=dx; z+=dz;} return false;}
-        function inCheck(c){const k=pieces.find(p=>p.type==='k'&&p.color===c); return !k||pieces.some(p=>p.color!==c&&isValidMove(p,k.x,k.z));}
-        function wouldLeaveCheck(p,tx,tz){const cap=getPiece(tx,tz); if(cap){scene.remove(cap.mesh); pieces.splice(pieces.indexOf(cap),1); updateMap();} const ox=p.x,oz=p.z; p.x=tx; p.z=tz; updateMap(); const chk=inCheck(p.color); p.x=ox; p.z=oz; if(cap){pieces.push(cap); scene.add(cap.mesh);} updateMap(); return chk;}
-        function clearHighlights(){highlights.forEach(h=>h.mesh.visible=false);}
-        function showMoves(p){clearHighlights(); const s=highlights.find(h=>h.x===p.x&&h.z===p.z); if(s){s.mesh.material=selMat; s.mesh.visible=true;} highlights.forEach(h=>{if(isValidMove(p,h.x,h.z)&&!wouldLeaveCheck(p,h.x,h.z)){h.mesh.visible=true; h.mesh.material=getPiece(h.x,h.z)?attackMat:highMat;}});}
         
+        function pieceBetween(x1, z1, x2, z2) {
+            const dx = Math.sign(x2-x1), dz = Math.sign(z2-z1); 
+            let x = x1+dx, z = z1+dz;
+            while (x !== x2 || z !== z2) { 
+                if (getPiece(x, z)) return true; 
+                x += dx; 
+                z += dz; 
+            }
+            return false;
+        }
+        
+        function inCheck(c) {
+            const k = pieces.find(p => p.type==='k' && p.color===c); 
+            return !k || pieces.some(p => p.color!==c && isValidMove(p, k.x, k.z));
+        }
+        
+        function wouldLeaveCheck(p, tx, tz) {
+            const cap = getPiece(tx, tz); 
+            if (cap) { scene.remove(cap.mesh); pieces.splice(pieces.indexOf(cap),1); updateMap(); }
+            const ox = p.x, oz = p.z; 
+            p.x = tx; p.z = tz; 
+            updateMap(); 
+            const chk = inCheck(p.color);
+            p.x = ox; p.z = oz; 
+            if (cap) { pieces.push(cap); scene.add(cap.mesh); } 
+            updateMap(); 
+            return chk;
+        }
+        
+        function clearHighlights() { highlights.forEach(h => h.mesh.visible = false); }
+        
+        function showMoves(p) {
+            clearHighlights(); 
+            const s = highlights.find(h => h.x === p.x && h.z === p.z);
+            if (s) { s.mesh.material = selMat; s.mesh.visible = true; }
+            highlights.forEach(h => {
+                if (isValidMove(p, h.x, h.z) && !wouldLeaveCheck(p, h.x, h.z)) {
+                    h.mesh.visible = true; 
+                    h.mesh.material = getPiece(h.x, h.z) ? attackMat : highMat;
+                }
+            });
+        }
+        
+        function animateMove(p, toX, toZ, captured, onComplete) {
+            isAnimating = true;
+            const startPos = p.mesh.position.clone();
+            const endPos = new THREE.Vector3(toX + 0.5, 0.25, toZ + 0.5);
+            const duration = 250;
+            const startTime = performance.now();
+            
+            playMoveSound(!!captured);
+            
+            function animate() {
+                const now = performance.now();
+                const progress = Math.min((now - startTime) / duration, 1);
+                const current = startPos.clone().lerp(endPos, progress);
+                current.y += Math.sin(progress * Math.PI) * 0.15;
+                p.mesh.position.copy(current);
+                
+                if (progress < 1) {
+                    requestAnimationFrame(animate);
+                } else {
+                    p.mesh.position.copy(endPos);
+                    isAnimating = false;
+                    if (onComplete) onComplete();
+                }
+            }
+            requestAnimationFrame(animate);
+        }
+
         function promotePawn(p, endTurn) {
             const panel = document.getElementById('promotion-panel');
             panel.style.display = 'flex';
@@ -229,85 +466,199 @@
             };
         }
 
-        function executeMove(p,tx,tz, endCallback){
-            const cap=getPiece(tx,tz); if(cap){scene.remove(cap.mesh); pieces.splice(pieces.indexOf(cap),1);}
-            p.mesh.position.set(tx+0.5,0.25,tz+0.5); p.x=tx; p.z=tz; updateMap(); clearHighlights();
-            // Превращение пешки
-            if (p.type==='p' && (p.z===0 || p.z===7)) {
-                promotePawn(p, endCallback);
-                return;
+        function executeMove(p, tx, tz, endCallback) {
+            const captured = getPiece(tx, tz);
+            if (captured) {
+                scene.remove(captured.mesh);
+                pieces.splice(pieces.indexOf(captured), 1);
+                if (captured.color === 'w') capturedWhite++; else capturedBlack++;
+                updateCapturedDisplay();
             }
-            // Пасхалка: король дошёл до конца -> пешка на старте
-            if (p.type==='k' && (p.z===0 || p.z===7)) {
-                const startZ = p.color==='w' ? 0 : 7;
-                const pawnX = p.x;
-                if (!getPiece(pawnX, startZ)) {
-                    addPiece('p', p.color, pawnX, startZ);
-                    updateMap();
-                    document.getElementById('status').textContent = '🎉 КОРОЛЬ ВОЗВРАЩАЕТ ПЕШКУ!';
+            
+            p.x = tx; p.z = tz;
+            updateMap();
+            clearHighlights();
+            
+            animateMove(p, tx, tz, captured, () => {
+                if (p.type === 'p' && (p.z === 0 || p.z === 7)) {
+                    promotePawn(p, endCallback);
+                    return;
                 }
-            }
-            if (endCallback) endCallback();
+                if (p.type === 'k' && (p.z === 0 || p.z === 7)) {
+                    const startZ = p.color === 'w' ? 0 : 7;
+                    if (!getPiece(p.x, startZ)) {
+                        addPiece('p', p.color, p.x, startZ);
+                        updateMap();
+                    }
+                }
+                if (endCallback) endCallback();
+            });
         }
 
-        function getLegalMoves(c){const m=[]; pieces.filter(p=>p.color===c).forEach(p=>{for(let x=0;x<8;x++)for(let z=0;z<8;z++)if(isValidMove(p,x,z)&&!wouldLeaveCheck(p,x,z))m.push({piece:p,x,z});}); return m;}
-        function checkGameOver(){const m=getLegalMoves(turn); if(m.length===0){over=true; document.getElementById('status').textContent=`🏆 МАТ! ПОБЕДИЛИ ${turn==='w'?'ЧЁРНЫЕ':'БЕЛЫЕ'}`; return true;} return false;}
+        function getLegalMoves(c) {
+            const m = []; 
+            pieces.filter(p => p.color===c).forEach(p => {
+                for (let x=0; x<8; x++) for (let z=0; z<8; z++) 
+                    if (isValidMove(p, x, z) && !wouldLeaveCheck(p, x, z)) m.push({piece: p, x, z});
+            });
+            return m;
+        }
         
-        function botMove(){
-            if(over||turn!=='b'||thinking)return; thinking=true; document.getElementById('status').textContent='🤖 БОТ ДУМАЕТ...';
-            setTimeout(()=>{
-                if(over||turn!=='b'){thinking=false; return;}
-                const moves=getLegalMoves('b'); if(moves.length===0){checkGameOver(); thinking=false; return;}
-                let mv; if(diff==='easy') mv=moves[Math.floor(Math.random()*moves.length)];
-                else if(diff==='medium'){const caps=moves.filter(m=>getPiece(m.x,m.z)); mv=caps.length?caps[Math.floor(Math.random()*caps.length)]:moves[Math.floor(Math.random()*moves.length)];}
-                else mv=moves.sort((a,b)=>(getPiece(b.x,b.z)?10:0)-(getPiece(a.x,a.z)?10:0))[0];
-                executeMove(mv.piece, mv.x, mv.z, ()=>{
-                    thinking=false; turn='w'; document.getElementById('status').textContent='👆 ВАШ ХОД'; checkGameOver();
+        function checkGameOver() {
+            const m = getLegalMoves(turn); 
+            if (m.length === 0) {
+                over = true;
+                document.getElementById('turn-indicator').textContent = `МАТ! ПОБЕДИЛИ ${turn==='w'?'ЧЁРНЫЕ':'БЕЛЫЕ'}`;
+                return true;
+            }
+            return false;
+        }
+        
+        function botMove() {
+            if (over || turn !== 'b' || thinking || isAnimating) return;
+            thinking = true;
+            
+            setTimeout(() => {
+                if (over || turn !== 'b' || isAnimating) { thinking = false; return; }
+                const moves = getLegalMoves('b'); 
+                if (moves.length === 0) { checkGameOver(); thinking = false; return; }
+                let mv; 
+                if (diff === 'easy') mv = moves[Math.floor(Math.random()*moves.length)];
+                else if (diff === 'medium') {
+                    const caps = moves.filter(m => getPiece(m.x, m.z));
+                    mv = caps.length ? caps[Math.floor(Math.random()*caps.length)] : moves[Math.floor(Math.random()*moves.length)];
+                } else {
+                    mv = moves.sort((a,b) => (getPiece(b.x,b.z)?10:0)-(getPiece(a.x,a.z)?10:0))[0];
+                }
+                
+                executeMove(mv.piece, mv.x, mv.z, () => {
+                    thinking = false; 
+                    turn = 'w'; 
+                    updateTurnIndicator(); 
+                    checkGameOver();
                 });
-            },350);
+            }, 400);
         }
 
-        const raycaster = new THREE.Raycaster(); const mouse = new THREE.Vector2();
-        function handleClick(e){
-            if(over||turn!=='w'||thinking||promoCallback)return;
-            const rect=renderer.domElement.getBoundingClientRect();
-            mouse.x=((e.clientX-rect.left)/rect.width)*2-1; mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
-            raycaster.setFromCamera(mouse,camera);
-            if(sel){
-                const plane=new THREE.Plane(new THREE.Vector3(0,1,0),-0.25); const target=new THREE.Vector3();
-                if(raycaster.ray.intersectPlane(plane,target)){
-                    const x=Math.floor(target.x), z=Math.floor(target.z);
-                    if(x>=0&&x<8&&z>=0&&z<8&&isValidMove(sel,x,z)&&!wouldLeaveCheck(sel,x,z)){
-                        executeMove(sel,x,z, ()=>{
-                            sel=null; turn='b'; document.getElementById('status').textContent='🤖 ХОД БОТА';
-                            if(!checkGameOver()) botMove();
-                        }); return;
-                    } else { sel=null; clearHighlights(); document.getElementById('status').textContent='❌ НЕЛЬЗЯ'; }
+        // ========== КЛИКИ ==========
+        const raycaster = new THREE.Raycaster(); 
+        const mouse = new THREE.Vector2();
+        
+        function handleClick(e) {
+            if (over || turn !== 'w' || thinking || isAnimating || promoCallback) return;
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            raycaster.setFromCamera(mouse, camera);
+            
+            if (sel) {
+                const plane = new THREE.Plane(new THREE.Vector3(0,1,0), -0.25); 
+                const target = new THREE.Vector3();
+                if (raycaster.ray.intersectPlane(plane, target)) {
+                    const x = Math.floor(target.x), z = Math.floor(target.z);
+                    if (x>=0 && x<8 && z>=0 && z<8 && isValidMove(sel, x, z) && !wouldLeaveCheck(sel, x, z)) {
+                        executeMove(sel, x, z, () => {
+                            sel = null; 
+                            turn = 'b'; 
+                            updateTurnIndicator(); 
+                            if (!checkGameOver()) botMove();
+                        }); 
+                        return;
+                    } else { 
+                        sel = null; 
+                        clearHighlights(); 
+                    }
                 }
             }
-            const meshes=pieces.map(p=>p.mesh); const intersects=raycaster.intersectObjects(meshes,true);
-            if(intersects.length){const hit=intersects[0].object; const p=pieces.find(p=>p.mesh===hit||p.mesh.children.includes(hit)); if(p&&p.color==='w'){sel=p; showMoves(p); document.getElementById('status').textContent=`ВЫБРАНА: ${p.type.toUpperCase()}`;}}
-            else { sel=null; clearHighlights(); document.getElementById('status').textContent='👆 ВЫБЕРИТЕ ФИГУРУ'; }
+            
+            const meshes = pieces.map(p => p.mesh); 
+            const intersects = raycaster.intersectObjects(meshes, true);
+            if (intersects.length) {
+                const hit = intersects[0].object; 
+                const p = pieces.find(p => p.mesh === hit || p.mesh.children.includes(hit)); 
+                if (p && p.color === 'w') { 
+                    sel = p; 
+                    showMoves(p); 
+                }
+            } else { 
+                sel = null; 
+                clearHighlights(); 
+            }
         }
-        renderer.domElement.addEventListener('click',handleClick);
-        renderer.domElement.addEventListener('touchstart',e=>e.preventDefault(),{passive:false});
-        renderer.domElement.addEventListener('touchend',e=>{e.preventDefault(); const t=e.changedTouches[0]; if(t)handleClick(t);});
-
-        document.querySelectorAll('.promo-btn').forEach(b=>b.addEventListener('click',()=>{ if(promoCallback) promoCallback(b.dataset.promo); }));
-        document.getElementById('newGame').addEventListener('click',setupBoard);
-        document.getElementById('resetCamera').addEventListener('click',resetCamera);
-        document.querySelectorAll('.diff-btn').forEach(b=>b.addEventListener('click',()=>{ document.querySelectorAll('.diff-btn').forEach(x=>x.classList.remove('active')); b.classList.add('active'); diff=b.dataset.diff; setupBoard(); }));
         
-        // Музыка
-        let audioCtx=null, musicOn=false;
-        function initAudio(){if(audioCtx)return; audioCtx=new (window.AudioContext||window.webkitAudioContext)(); const g=audioCtx.createGain(); g.gain.value=0.12; g.connect(audioCtx.destination);
-            function note(f,t,d){if(!musicOn)return; const o=audioCtx.createOscillator(),gg=audioCtx.createGain(); o.type='triangle'; o.frequency.value=f; gg.gain.setValueAtTime(0.05,t); gg.gain.exponentialRampToValueAtTime(0.001,t+d); o.connect(gg); gg.connect(g); o.start(t); o.stop(t+d);}
-            function loop(){if(!musicOn)return; const t=audioCtx.currentTime; [261.63,329.63,392.00,523.25].forEach((f,i)=>{note(f,t+i*0.6,0.5); if(i%2)note(f*1.5,t+i*0.6+0.1,0.2);}); setTimeout(loop,3000);} loop();}
-        document.getElementById('musicBtn').addEventListener('click',()=>{ musicOn=!musicOn; document.getElementById('musicBtn').textContent=musicOn?'🔇 ВЫКЛ':'🎵 ВКЛ'; if(musicOn){if(!audioCtx)initAudio(); else audioCtx.resume();} });
+        renderer.domElement.addEventListener('click', handleClick);
+        renderer.domElement.addEventListener('touchstart', e => e.preventDefault(), {passive: false});
+        renderer.domElement.addEventListener('touchend', e => {
+            e.preventDefault(); 
+            const t = e.changedTouches[0]; 
+            if (t) handleClick(t);
+        });
 
-        window.addEventListener('resize',()=>{ camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
-        function animate(){requestAnimationFrame(animate); controls.update(); renderer.render(scene,camera);}
-        setupBoard(); animate();
+        document.querySelectorAll('.promo-btn').forEach(b => b.addEventListener('click', () => { 
+            if (promoCallback) promoCallback(b.dataset.promo); 
+        }));
+        document.getElementById('newGame').addEventListener('click', () => { if (!isAnimating) setupBoard(); });
+        document.querySelectorAll('.diff-btn').forEach(b => b.addEventListener('click', () => { 
+            document.querySelectorAll('.diff-btn').forEach(x => x.classList.remove('active')); 
+            b.classList.add('active'); 
+            diff = b.dataset.diff; 
+            setupBoard(); 
+        }));
+        
+        // ========== ГРОМКАЯ МУЗЫКА (УДВОЕНА) ==========
+        let musicOn = false;
+        let musicCtx = null;
+        function initMusic() {
+            if (musicCtx) return;
+            musicCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const gain = musicCtx.createGain(); 
+            gain.gain.value = 0.4; // УДВОЕНО
+            gain.connect(musicCtx.destination);
+            function note(f, t, d) {
+                if (!musicOn) return; 
+                const o = musicCtx.createOscillator(), g = musicCtx.createGain(); 
+                o.type = 'triangle'; 
+                o.frequency.value = f; 
+                g.gain.setValueAtTime(0.16, t); // УДВОЕНО
+                g.gain.exponentialRampToValueAtTime(0.001, t+d); 
+                o.connect(g); 
+                g.connect(gain); 
+                o.start(t); 
+                o.stop(t+d);
+            }
+            function loop() {
+                if (!musicOn) return; 
+                const t = musicCtx.currentTime; 
+                [261.63, 329.63, 392.00, 523.25].forEach((f, i) => {
+                    note(f, t + i*0.6, 0.5); 
+                    if (i%2) note(f*1.5, t + i*0.6 + 0.1, 0.2);
+                }); 
+                setTimeout(loop, 3000);
+            }
+            loop();
+        }
+        document.getElementById('musicBtn').addEventListener('click', () => {
+            musicOn = !musicOn;
+            document.getElementById('musicBtn').textContent = musicOn ? '🔇 ВЫКЛ' : '🎵 ВКЛ';
+            if (musicOn) {
+                if (!musicCtx) initMusic();
+                else musicCtx.resume();
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = innerWidth / innerHeight; 
+            camera.updateProjectionMatrix(); 
+            renderer.setSize(innerWidth, innerHeight);
+        });
+        
+        function animate() {
+            requestAnimationFrame(animate); 
+            renderer.render(scene, camera);
+        }
+        
+        setupBoard(); 
+        animate();
     </script>
 </body>
 </html>
