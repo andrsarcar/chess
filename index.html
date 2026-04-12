@@ -65,7 +65,7 @@
         .diff-btn.active { background: #c9a96b; color: #111; }
         .diff-btn.insane.active { background: #ff4444; color: white; }
         #musicBtn {
-            position: absolute; bottom: 20px; left: 80px; background: rgba(35,55,75,0.9);
+            position: absolute; bottom: 20px; left: 15px; background: rgba(35,55,75,0.9);
             color: #e0d5c0; border: 1px solid #6a8aaa; padding: 10px 18px; border-radius: 35px;
             font-size: 14px; font-weight: bold; cursor: pointer; backdrop-filter: blur(5px);
             z-index: 200;
@@ -228,9 +228,9 @@
         dirLight.position.set(2, 10, 2);
         scene.add(dirLight);
 
-        // Доска
-        const darkMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4 });
-        const lightMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.3 });
+        // ДОСКА: белые и чёрные клетки ПОМЕНЯНЫ МЕСТАМИ
+        const darkMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.3 }); // Светлые
+        const lightMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4 }); // Тёмные
         const edgeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 });
         
         const base = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.15, 8.5), edgeMat);
@@ -239,6 +239,7 @@
         
         for (let i = 0; i < 8; i++) {
             for (let j = 0; j < 8; j++) {
+                // Инвертируем цвет: (i+j)%2 === 0 теперь тёмная, === 1 светлая
                 const tile = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.1, 0.98), (i+j)%2 === 0 ? lightMat : darkMat);
                 tile.position.set(i + 0.5, 0, j + 0.5);
                 scene.add(tile);
@@ -323,7 +324,6 @@
         const pieceNames = { p: 'ПЕШКА', r: 'ЛАДЬЯ', n: 'КОНЬ', b: 'СЛОН', q: 'ФЕРЗЬ', k: 'КОРОЛЬ' };
         const pieceValues = { p: 1, r: 5, n: 3, b: 3, q: 9, k: 100 };
         
-        // История ходов для избежания повторений
         const moveHistory = [];
         
         function showPieceHint(piece) {
@@ -373,6 +373,7 @@
             pieces.length = 0;
             moveHistory.length = 0;
             
+            // ФЕРЗЬ НА СВОЁМ ЦВЕТЕ: теперь клетки инвертированы, поэтому позиции правильные
             addPiece('r', 'w', 0, 0); addPiece('n', 'w', 1, 0); addPiece('b', 'w', 2, 0); 
             addPiece('q', 'w', 3, 0); addPiece('k', 'w', 4, 0); 
             addPiece('b', 'w', 5, 0); addPiece('n', 'w', 6, 0); addPiece('r', 'w', 7, 0);
@@ -545,7 +546,6 @@
             const captured = getPiece(tx, tz);
             let isCastle = false, rookMove = null;
             
-            // Запись в историю
             moveHistory.push({ piece: p.type, from: {x: p.x, z: p.z}, to: {x: tx, z: tz}, captured: captured?.type });
             if (moveHistory.length > 20) moveHistory.shift();
             
@@ -597,62 +597,38 @@
             return m;
         }
         
-        // Оценка позиции с учётом безопасности
         function evaluatePosition() {
             let score = 0;
-            
-            // Материал
             pieces.forEach(p => {
                 const val = pieceValues[p.type] || 0;
                 score += p.color === 'b' ? val : -val;
             });
-            
-            // Позиционные бонусы для чёрных
             pieces.filter(p => p.color === 'b').forEach(p => {
-                // Центр
                 const dx = Math.abs(p.x - 3.5), dz = Math.abs(p.z - 3.5);
                 if (dx < 2 && dz < 2) score += 0.3;
-                
-                // Развитие (фигуры не на начальных позициях)
-                if (p.type === 'n' || p.type === 'b') {
-                    if (p.z !== 7) score += 0.2;
-                }
-                
-                // Безопасность короля
-                if (p.type === 'k') {
-                    if (p.x >= 2 && p.x <= 5) score += 0.5;
-                }
+                if (p.type === 'n' || p.type === 'b') { if (p.z !== 7) score += 0.2; }
+                if (p.type === 'k') { if (p.x >= 2 && p.x <= 5) score += 0.5; }
             });
-            
-            // Штраф за повторение ходов
             if (moveHistory.length >= 4) {
                 const last4 = moveHistory.slice(-4);
                 if (last4[0]?.piece === last4[2]?.piece && 
                     last4[0]?.from.x === last4[2]?.to.x && 
-                    last4[0]?.from.z === last4[2]?.to.z) {
-                    score -= 2;
-                }
+                    last4[0]?.from.z === last4[2]?.to.z) score -= 2;
             }
-            
             return score;
         }
         
-        // Проверка, находится ли фигура под боем
         function isPieceAttacked(piece) {
             return pieces.some(p => p.color !== piece.color && isValidMove(p, piece.x, piece.z));
         }
         
-        // Минимакс с улучшенной оценкой
         function minimax(depth, alpha, beta, maximizing) {
             if (depth === 0) return evaluatePosition();
-            
             const moves = getLegalMoves(maximizing ? 'b' : 'w');
             if (moves.length === 0) {
                 if (inCheck(maximizing ? 'b' : 'w')) return maximizing ? -1000 + depth : 1000 - depth;
                 return 0;
             }
-            
-            // Сортировка ходов для альфа-бета (сначала взятия)
             moves.sort((a, b) => {
                 const aCapture = getPiece(a.x, a.z);
                 const bCapture = getPiece(b.x, b.z);
@@ -666,17 +642,11 @@
                     if (captured) { scene.remove(captured.mesh); pieces.splice(pieces.indexOf(captured),1); updateMap(); }
                     const ox = move.piece.x, oz = move.piece.z;
                     const oldHasMoved = move.piece.hasMoved;
-                    move.piece.x = move.x; move.piece.z = move.z;
-                    move.piece.hasMoved = true;
-                    updateMap();
-                    
+                    move.piece.x = move.x; move.piece.z = move.z; move.piece.hasMoved = true; updateMap();
                     const evalScore = minimax(depth - 1, alpha, beta, false);
-                    
-                    move.piece.x = ox; move.piece.z = oz;
-                    move.piece.hasMoved = oldHasMoved;
+                    move.piece.x = ox; move.piece.z = oz; move.piece.hasMoved = oldHasMoved;
                     if (captured) { pieces.push(captured); scene.add(captured.mesh); }
                     updateMap();
-                    
                     maxEval = Math.max(maxEval, evalScore);
                     alpha = Math.max(alpha, evalScore);
                     if (beta <= alpha) break;
@@ -689,17 +659,11 @@
                     if (captured) { scene.remove(captured.mesh); pieces.splice(pieces.indexOf(captured),1); updateMap(); }
                     const ox = move.piece.x, oz = move.piece.z;
                     const oldHasMoved = move.piece.hasMoved;
-                    move.piece.x = move.x; move.piece.z = move.z;
-                    move.piece.hasMoved = true;
-                    updateMap();
-                    
+                    move.piece.x = move.x; move.piece.z = move.z; move.piece.hasMoved = true; updateMap();
                     const evalScore = minimax(depth - 1, alpha, beta, true);
-                    
-                    move.piece.x = ox; move.piece.z = oz;
-                    move.piece.hasMoved = oldHasMoved;
+                    move.piece.x = ox; move.piece.z = oz; move.piece.hasMoved = oldHasMoved;
                     if (captured) { pieces.push(captured); scene.add(captured.mesh); }
                     updateMap();
-                    
                     minEval = Math.min(minEval, evalScore);
                     beta = Math.min(beta, evalScore);
                     if (beta <= alpha) break;
@@ -729,17 +693,12 @@
                 let mv; 
                 
                 if (diff === 'easy') {
-                    // Лёгкий: случайный, но избегает явных потерь
                     const safeMoves = moves.filter(m => {
-                        const piece = m.piece;
                         const target = getPiece(m.x, m.z);
-                        if (target && pieceValues[target.type] > pieceValues[piece.type]) return false;
-                        return true;
+                        return !(target && pieceValues[target.type] > pieceValues[m.piece.type]);
                     });
-                    mv = safeMoves.length ? safeMoves[Math.floor(Math.random() * safeMoves.length)] 
-                                          : moves[Math.floor(Math.random() * moves.length)];
+                    mv = safeMoves.length ? safeMoves[Math.floor(Math.random() * safeMoves.length)] : moves[Math.floor(Math.random() * moves.length)];
                 } else if (diff === 'medium') {
-                    // Средний: берёт, если выгодно, иначе развивается
                     const caps = moves.filter(m => {
                         const target = getPiece(m.x, m.z);
                         return target && pieceValues[target.type] >= pieceValues[m.piece.type];
@@ -747,73 +706,42 @@
                     if (caps.length) {
                         mv = caps.sort((a,b) => pieceValues[getPiece(b.x,b.z).type] - pieceValues[getPiece(a.x,a.z).type])[0];
                     } else {
-                        // Развивающие ходы (пешки вперёд, кони в центр)
                         const devMoves = moves.filter(m => {
                             if (m.piece.type === 'p' && m.piece.z > 4) return true;
-                            if ((m.piece.type === 'n' || m.piece.type === 'b') && 
-                                Math.abs(m.x - 3.5) < 2.5) return true;
+                            if ((m.piece.type === 'n' || m.piece.type === 'b') && Math.abs(m.x - 3.5) < 2.5) return true;
                             return false;
                         });
-                        mv = devMoves.length ? devMoves[Math.floor(Math.random() * devMoves.length)]
-                                            : moves[Math.floor(Math.random() * moves.length)];
+                        mv = devMoves.length ? devMoves[Math.floor(Math.random() * devMoves.length)] : moves[Math.floor(Math.random() * moves.length)];
                     }
                 } else if (diff === 'hard') {
-                    // Сложный: жадный с безопасностью
                     let bestScore = -Infinity;
                     for (const move of moves) {
                         let score = 0;
                         const target = getPiece(move.x, move.z);
-                        if (target) {
-                            score += pieceValues[target.type] * 10;
-                        }
-                        // Штраф за ход под бой
+                        if (target) score += pieceValues[target.type] * 10;
                         const oldX = move.piece.x, oldZ = move.piece.z;
                         move.piece.x = move.x; move.piece.z = move.z; updateMap();
-                        if (isPieceAttacked(move.piece)) {
-                            score -= pieceValues[move.piece.type] * 5;
-                        }
+                        if (isPieceAttacked(move.piece)) score -= pieceValues[move.piece.type] * 5;
                         move.piece.x = oldX; move.piece.z = oldZ; updateMap();
-                        
-                        // Бонус за центр и развитие
                         if (move.piece.type === 'p' && move.z < 5) score += 1;
-                        if ((move.piece.type === 'n' || move.piece.type === 'b') && 
-                            Math.abs(move.x - 3.5) < 2.5) score += 2;
-                        
-                        // Штраф за повторение ходов
+                        if ((move.piece.type === 'n' || move.piece.type === 'b') && Math.abs(move.x - 3.5) < 2.5) score += 2;
                         const lastMove = moveHistory[moveHistory.length - 1];
-                        if (lastMove && lastMove.piece === move.piece.type &&
-                            lastMove.to.x === move.piece.x && lastMove.to.z === move.piece.z) {
-                            score -= 5;
-                        }
-                        
-                        if (score > bestScore) {
-                            bestScore = score;
-                            mv = move;
-                        }
+                        if (lastMove && lastMove.piece === move.piece.type && lastMove.to.x === move.piece.x && lastMove.to.z === move.piece.z) score -= 5;
+                        if (score > bestScore) { bestScore = score; mv = move; }
                     }
                 } else {
-                    // Безумие: минимакс 3 хода
                     let bestScore = -Infinity;
                     for (const move of moves) {
                         const captured = getPiece(move.x, move.z);
                         if (captured) { scene.remove(captured.mesh); pieces.splice(pieces.indexOf(captured),1); updateMap(); }
                         const ox = move.piece.x, oz = move.piece.z;
                         const oldHasMoved = move.piece.hasMoved;
-                        move.piece.x = move.x; move.piece.z = move.z;
-                        move.piece.hasMoved = true;
-                        updateMap();
-                        
+                        move.piece.x = move.x; move.piece.z = move.z; move.piece.hasMoved = true; updateMap();
                         const score = minimax(2, -Infinity, Infinity, false);
-                        
-                        move.piece.x = ox; move.piece.z = oz;
-                        move.piece.hasMoved = oldHasMoved;
+                        move.piece.x = ox; move.piece.z = oz; move.piece.hasMoved = oldHasMoved;
                         if (captured) { pieces.push(captured); scene.add(captured.mesh); }
                         updateMap();
-                        
-                        if (score > bestScore) {
-                            bestScore = score;
-                            mv = move;
-                        }
+                        if (score > bestScore) { bestScore = score; mv = move; }
                     }
                 }
                 
@@ -824,15 +752,25 @@
             }, diff === 'insane' ? 500 : 300);
         }
 
-        // ========== КЛИКИ ==========
+        // ========== КЛИКИ (ИСПРАВЛЕНО ДЛЯ ТЕЛЕФОНА) ==========
         const raycaster = new THREE.Raycaster(); 
         const mouse = new THREE.Vector2();
         
         function handleClick(e) {
             if (over || turn !== 'w' || thinking || isAnimating || promoCallback) return;
+            
+            // Предотвращаем стандартное поведение
+            e.preventDefault();
+            
+            // Получаем координаты касания/клика
             const rect = renderer.domElement.getBoundingClientRect();
-            mouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
-            mouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+            const clientX = e.clientX !== undefined ? e.clientX : (e.touches ? e.touches[0].clientX : 0);
+            const clientY = e.clientY !== undefined ? e.clientY : (e.touches ? e.touches[0].clientY : 0);
+            
+            // Нормализуем координаты
+            mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+            
             raycaster.setFromCamera(mouse, camera);
             
             if (sel) {
@@ -860,11 +798,16 @@
         }
         
         renderer.domElement.addEventListener('click', handleClick);
-        renderer.domElement.addEventListener('touchstart', e => e.preventDefault(), {passive: false});
-        renderer.domElement.addEventListener('touchend', e => {
-            e.preventDefault(); 
-            const t = e.changedTouches[0]; 
-            if (t) handleClick(t);
+        renderer.domElement.addEventListener('touchstart', (e) => {
+            e.preventDefault();
+        }, {passive: false});
+        renderer.domElement.addEventListener('touchend', (e) => {
+            e.preventDefault();
+            const touch = e.changedTouches[0];
+            if (touch) {
+                // Создаём объект события с координатами касания
+                handleClick({ clientX: touch.clientX, clientY: touch.clientY, preventDefault: () => {} });
+            }
         });
 
         // ========== СЕКРЕТНЫЙ КОД ==========
