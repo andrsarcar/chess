@@ -17,12 +17,29 @@
             font-size: 32px; cursor: pointer; opacity: 0.6; transition: 0.2s;
             filter: drop-shadow(0 0 5px gold);
         }
-        #crown-icon:hover { opacity: 1; transform: scale(1.1); }
+        #stats-icon {
+            position: absolute; top: 20px; left: 70px; z-index: 300;
+            font-size: 28px; cursor: pointer; opacity: 0.6; transition: 0.2s;
+        }
+        #crown-icon:hover, #stats-icon:hover { opacity: 1; transform: scale(1.1); }
         #secret-panel {
             position: absolute; top: 70px; left: 20px; z-index: 400;
             background: rgba(20,20,40,0.95); padding: 15px; border-radius: 20px;
             border: 2px solid gold; display: none; backdrop-filter: blur(10px);
             box-shadow: 0 0 30px rgba(255,215,0,0.3);
+        }
+        #stats-panel {
+            position: absolute; top: 70px; left: 70px; z-index: 400;
+            background: rgba(20,20,40,0.95); padding: 15px; border-radius: 20px;
+            border: 2px solid #6a8aaa; display: none; backdrop-filter: blur(10px);
+            min-width: 200px; text-align: center;
+        }
+        .stats-header {
+            color: #c9a96b; font-size: 16px; margin-bottom: 10px;
+        }
+        .stats-row {
+            display: flex; justify-content: space-between; color: #e0d5c0; padding: 5px;
+            border-bottom: 1px solid #3a5a7a;
         }
         #secret-input {
             background: #1a1a3e; border: 1px solid gold; color: #ffd700;
@@ -64,6 +81,7 @@
         }
         .diff-btn.active { background: #c9a96b; color: #111; }
         .diff-btn.insane.active { background: #ff4444; color: white; }
+        .diff-btn.impossible.active { background: #aa00ff; color: white; }
         #musicBtn {
             position: absolute; bottom: 20px; left: 15px; background: rgba(35,55,75,0.9);
             color: #e0d5c0; border: 1px solid #6a8aaa; padding: 10px 18px; border-radius: 35px;
@@ -99,6 +117,10 @@
             border-radius: 30px; font-size: 16px; font-weight: bold; z-index: 400;
             opacity: 0; transition: opacity 0.3s; pointer-events: none;
         }
+        #clear-stats-btn {
+            margin-top: 10px; background: #5a3a3a; color: white; border: none;
+            padding: 8px; border-radius: 20px; cursor: pointer; width: 100%;
+        }
         @media (max-width: 600px) {
             .diff-btn { padding: 6px 8px; font-size: 11px; }
         }
@@ -108,9 +130,17 @@
     <div id="title">♔ ШАХМАТЫ ПРОТИВ БОТА</div>
     
     <div id="crown-icon" title="Секретный код">👑</div>
+    <div id="stats-icon" title="Статистика">📊</div>
     <div id="secret-panel">
         <input type="password" id="secret-input" placeholder="КОД" maxlength="20">
         <button id="secret-btn">ВВОД</button>
+    </div>
+    <div id="stats-panel">
+        <div class="stats-header">📊 СТАТИСТИКА</div>
+        <div class="stats-row"><span>✅ Победы:</span> <span id="wins-count">0</span></div>
+        <div class="stats-row"><span>❌ Поражения:</span> <span id="losses-count">0</span></div>
+        <div class="stats-row"><span>🟧 Ничьи:</span> <span id="draws-count">0</span></div>
+        <button id="clear-stats-btn">ОЧИСТИТЬ</button>
     </div>
     <div id="summon-panel">
         <button class="summon-btn" data-piece="p">♙</button>
@@ -142,6 +172,7 @@
             <button class="diff-btn active" data-diff="medium">СРЕДНЕ</button>
             <button class="diff-btn" data-diff="hard">СЛОЖНО</button>
             <button class="diff-btn insane" data-diff="insane">🔥 БЕЗУМИЕ</button>
+            <button class="diff-btn impossible" data-diff="impossible">💥 НЕВОЗМОЖНЫЙ</button>
         </div>
     </div>
 
@@ -209,6 +240,33 @@
             osc.stop(now + 0.2);
         }
 
+        // ========== СТАТИСТИКА ==========
+        let stats = { wins: 0, losses: 0, draws: 0 };
+        
+        function loadStats() {
+            const saved = localStorage.getItem('chessStats');
+            if (saved) stats = JSON.parse(saved);
+            updateStatsDisplay();
+        }
+        
+        function saveStats() {
+            localStorage.setItem('chessStats', JSON.stringify(stats));
+            updateStatsDisplay();
+        }
+        
+        function updateStatsDisplay() {
+            document.getElementById('wins-count').textContent = stats.wins;
+            document.getElementById('losses-count').textContent = stats.losses;
+            document.getElementById('draws-count').textContent = stats.draws;
+        }
+        
+        function addGameResult(result) {
+            if (result === 'win') stats.wins++;
+            else if (result === 'loss') stats.losses++;
+            else if (result === 'draw') stats.draws++;
+            saveStats();
+        }
+
         // ========== СЦЕНА ==========
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x1a2a3a);
@@ -228,9 +286,9 @@
         dirLight.position.set(2, 10, 2);
         scene.add(dirLight);
 
-        // ДОСКА: белые и чёрные клетки ПОМЕНЯНЫ МЕСТАМИ
-        const darkMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.3 }); // Светлые
-        const lightMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4 }); // Тёмные
+        // ДОСКА
+        const darkMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.4 });
+        const lightMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, roughness: 0.3 });
         const edgeMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1a, roughness: 0.5 });
         
         const base = new THREE.Mesh(new THREE.BoxGeometry(8.5, 0.15, 8.5), edgeMat);
@@ -239,7 +297,6 @@
         
         for (let i = 0; i < 8; i++) {
             for (let j = 0; j < 8; j++) {
-                // Инвертируем цвет: (i+j)%2 === 0 теперь тёмная, === 1 светлая
                 const tile = new THREE.Mesh(new THREE.BoxGeometry(0.98, 0.1, 0.98), (i+j)%2 === 0 ? lightMat : darkMat);
                 tile.position.set(i + 0.5, 0, j + 0.5);
                 scene.add(tile);
@@ -324,8 +381,6 @@
         const pieceNames = { p: 'ПЕШКА', r: 'ЛАДЬЯ', n: 'КОНЬ', b: 'СЛОН', q: 'ФЕРЗЬ', k: 'КОРОЛЬ' };
         const pieceValues = { p: 1, r: 5, n: 3, b: 3, q: 9, k: 100 };
         
-        const moveHistory = [];
-        
         function showPieceHint(piece) {
             const hint = document.getElementById('piece-hint');
             hint.textContent = `${piece.color==='w'?'БЕЛЫЙ':'ЧЁРНЫЙ'} ${pieceNames[piece.type]}`;
@@ -371,11 +426,11 @@
             }
             pieces.forEach(p => scene.remove(p.mesh)); 
             pieces.length = 0;
-            moveHistory.length = 0;
             
-            // ФЕРЗЬ НА СВОЁМ ЦВЕТЕ: теперь клетки инвертированы, поэтому позиции правильные
+            // ФЕРЗЬ И КОРОЛЬ ПОМЕНЯНЫ МЕСТАМИ: белый ферзь на e1 (x=4), белый король на d1 (x=3)
+            // чёрный ферзь на d8 (x=3), чёрный король на e8 (x=4)
             addPiece('r', 'w', 0, 0); addPiece('n', 'w', 1, 0); addPiece('b', 'w', 2, 0); 
-            addPiece('q', 'w', 3, 0); addPiece('k', 'w', 4, 0); 
+            addPiece('k', 'w', 3, 0); addPiece('q', 'w', 4, 0); 
             addPiece('b', 'w', 5, 0); addPiece('n', 'w', 6, 0); addPiece('r', 'w', 7, 0);
             for (let i = 0; i < 8; i++) addPiece('p', 'w', i, 1);
             
@@ -546,9 +601,6 @@
             const captured = getPiece(tx, tz);
             let isCastle = false, rookMove = null;
             
-            moveHistory.push({ piece: p.type, from: {x: p.x, z: p.z}, to: {x: tx, z: tz}, captured: captured?.type });
-            if (moveHistory.length > 20) moveHistory.shift();
-            
             if (p.type === 'k' && Math.abs(tx - p.x) === 2) {
                 isCastle = true;
                 const row = p.z;
@@ -609,12 +661,6 @@
                 if (p.type === 'n' || p.type === 'b') { if (p.z !== 7) score += 0.2; }
                 if (p.type === 'k') { if (p.x >= 2 && p.x <= 5) score += 0.5; }
             });
-            if (moveHistory.length >= 4) {
-                const last4 = moveHistory.slice(-4);
-                if (last4[0]?.piece === last4[2]?.piece && 
-                    last4[0]?.from.x === last4[2]?.to.x && 
-                    last4[0]?.from.z === last4[2]?.to.z) score -= 2;
-            }
             return score;
         }
         
@@ -676,7 +722,13 @@
             const m = getLegalMoves(turn); 
             if (m.length === 0) {
                 over = true;
-                document.getElementById('turn-indicator').textContent = inCheck(turn) ? 
+                const isCheck = inCheck(turn);
+                if (isCheck) {
+                    addGameResult(turn === 'w' ? 'loss' : 'win');
+                } else {
+                    addGameResult('draw');
+                }
+                document.getElementById('turn-indicator').textContent = isCheck ? 
                     `МАТ! ПОБЕДИЛИ ${turn==='w'?'ЧЁРНЫЕ':'БЕЛЫЕ'}` : `ПАТ! НИЧЬЯ`;
                 return true;
             }
@@ -725,11 +777,9 @@
                         move.piece.x = oldX; move.piece.z = oldZ; updateMap();
                         if (move.piece.type === 'p' && move.z < 5) score += 1;
                         if ((move.piece.type === 'n' || move.piece.type === 'b') && Math.abs(move.x - 3.5) < 2.5) score += 2;
-                        const lastMove = moveHistory[moveHistory.length - 1];
-                        if (lastMove && lastMove.piece === move.piece.type && lastMove.to.x === move.piece.x && lastMove.to.z === move.piece.z) score -= 5;
                         if (score > bestScore) { bestScore = score; mv = move; }
                     }
-                } else {
+                } else if (diff === 'insane') {
                     let bestScore = -Infinity;
                     for (const move of moves) {
                         const captured = getPiece(move.x, move.z);
@@ -743,31 +793,41 @@
                         updateMap();
                         if (score > bestScore) { bestScore = score; mv = move; }
                     }
+                } else {
+                    let bestScore = -Infinity;
+                    for (const move of moves) {
+                        const captured = getPiece(move.x, move.z);
+                        if (captured) { scene.remove(captured.mesh); pieces.splice(pieces.indexOf(captured),1); updateMap(); }
+                        const ox = move.piece.x, oz = move.piece.z;
+                        const oldHasMoved = move.piece.hasMoved;
+                        move.piece.x = move.x; move.piece.z = move.z; move.piece.hasMoved = true; updateMap();
+                        const score = minimax(3, -Infinity, Infinity, false);
+                        move.piece.x = ox; move.piece.z = oz; move.piece.hasMoved = oldHasMoved;
+                        if (captured) { pieces.push(captured); scene.add(captured.mesh); }
+                        updateMap();
+                        if (score > bestScore) { bestScore = score; mv = move; }
+                    }
                 }
                 
                 executeMove(mv.piece, mv.x, mv.z, () => {
                     thinking = false; turn = 'w'; updateTurnIndicator(); 
                     updateCheckHighlight(); checkGameOver();
                 });
-            }, diff === 'insane' ? 500 : 300);
+            }, diff === 'impossible' ? 800 : (diff === 'insane' ? 500 : 300));
         }
 
-        // ========== КЛИКИ (ИСПРАВЛЕНО ДЛЯ ТЕЛЕФОНА) ==========
+        // ========== КЛИКИ ==========
         const raycaster = new THREE.Raycaster(); 
         const mouse = new THREE.Vector2();
         
         function handleClick(e) {
             if (over || turn !== 'w' || thinking || isAnimating || promoCallback) return;
-            
-            // Предотвращаем стандартное поведение
             e.preventDefault();
             
-            // Получаем координаты касания/клика
             const rect = renderer.domElement.getBoundingClientRect();
             const clientX = e.clientX !== undefined ? e.clientX : (e.touches ? e.touches[0].clientX : 0);
             const clientY = e.clientY !== undefined ? e.clientY : (e.touches ? e.touches[0].clientY : 0);
             
-            // Нормализуем координаты
             mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
             mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
             
@@ -798,19 +858,24 @@
         }
         
         renderer.domElement.addEventListener('click', handleClick);
-        renderer.domElement.addEventListener('touchstart', (e) => {
-            e.preventDefault();
-        }, {passive: false});
+        renderer.domElement.addEventListener('touchstart', (e) => e.preventDefault(), {passive: false});
         renderer.domElement.addEventListener('touchend', (e) => {
             e.preventDefault();
             const touch = e.changedTouches[0];
-            if (touch) {
-                // Создаём объект события с координатами касания
-                handleClick({ clientX: touch.clientX, clientY: touch.clientY, preventDefault: () => {} });
-            }
+            if (touch) handleClick({ clientX: touch.clientX, clientY: touch.clientY, preventDefault: () => {} });
         });
 
-        // ========== СЕКРЕТНЫЙ КОД ==========
+        // ========== ИНТЕРФЕЙС ==========
+        document.getElementById('stats-icon').addEventListener('click', () => {
+            const panel = document.getElementById('stats-panel');
+            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+        });
+        
+        document.getElementById('clear-stats-btn').addEventListener('click', () => {
+            stats = { wins: 0, losses: 0, draws: 0 };
+            saveStats();
+        });
+        
         const crown = document.getElementById('crown-icon');
         const secretPanel = document.getElementById('secret-panel');
         const summonPanel = document.getElementById('summon-panel');
@@ -899,6 +964,7 @@
             renderer.render(scene, camera);
         }
         
+        loadStats();
         setupBoard(); 
         animate();
     </script>
